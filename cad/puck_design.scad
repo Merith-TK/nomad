@@ -7,6 +7,15 @@
  */
 
 // ============================================
+// PUCK CONFIGURATION
+// ============================================
+// All puck settings consolidated here for easy adjustment:
+// - Main dimensions (size and height)
+// - Corner rounding (front vs back)
+// - Optional mounting holes
+// - Fit adjustment (tolerance)
+
+// ============================================
 // MAIN DIMENSIONS
 // ============================================
 puck_size = 33.5;           // Square footprint (mm)

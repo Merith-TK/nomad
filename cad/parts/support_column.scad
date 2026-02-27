@@ -6,6 +6,14 @@
  */
 
 // ============================================
+// SUPPORT COLUMN CONFIGURATION
+// ============================================
+// Default parameters for test renders:
+// - Footprint size (square)
+// - Column height
+// - Corner radius for rounding
+
+// ============================================
 // DEFAULT PARAMETERS
 // ============================================
 default_size = 25.0;           // Default footprint size (mm)

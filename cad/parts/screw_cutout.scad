@@ -6,6 +6,13 @@
  */
 
 // ============================================
+// SCREW CUTOUT CONFIGURATION
+// ============================================
+// All screw cutout settings:
+// - Shaft diameter and height
+// - Nut recess dimensions and positioning
+
+// ============================================
 // SCREW SPECIFICATIONS
 // ============================================
 screw_shaft_diameter = 3.0;   // Clearance for M2.5 screw (mm)

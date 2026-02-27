@@ -12,37 +12,32 @@
 use <parts/screw_cutout.scad>
 
 // ============================================
+// BRAIN MOUNT CONFIGURATION
+// ============================================
+// All brain mount settings consolidated here for easy adjustment:
+// - Wedge dimensions (2 wedges with different sizes)
+// - Screw hole positions (matching Pi 3B+ pattern)
+// - Component positioning
+
+// ============================================
 // WEDGE 1 DIMENSIONS (Long wedge with screw holes)
 // ============================================
-wedge1_width = 20.0;    // Triangle-to-triangle width (mm)
-wedge1_length = 83.0;   // Back wall to nose length (mm)
-wedge1_height = 7.0;    // Tall dimension (mm)
+wedge1_size = [20.0, 83.0, 7.0];  // [Width, Length, Height] (mm)
 
 // ============================================
 // WEDGE 2 DIMENSIONS (Front wedge)
 // ============================================
-wedge2_width = 40.25;   // Triangle-to-triangle width (mm)
-wedge2_length = 20.0;   // Back wall to nose length (mm)
-wedge2_height = 7.0;    // Tall dimension (mm)
+wedge2_size = [40.25, 20.0, 7.0];  // [Width, Length, Height] (mm)
+wedge2_pos = [-31.25, 0, 0];       // [X, Y, Z] position offset (mm)
 
 // ============================================
 // SCREW HOLE POSITIONS
 // ============================================
 // Hole positions on Wedge 1 match Pi 3B+ mounting pattern
-hole1_offset_short = 8.5;  // Distance from short edge (20mm edge)
-hole1_offset_long = 6.5;   // Distance from long edge (83mm edge)
-
-// Pi 3B+ lengthwise hole spacing for second hole
-pi_length_spacing = 58.0;  // Standard Pi mounting spacing (mm)
-hole2_offset_long = hole1_offset_long + pi_length_spacing;  // 6.5 + 58 = 64.5mm
-
-// Screw inset depth
-screw_depth = -3.0;  // Inset from wedge surface (mm)
-
-// ============================================
-// WEDGE 2 POSITION
-// ============================================
-wedge2_offset_x = -31.25;  // Position between screw holes (mm)
+hole1_offset = [6.5, 8.5];   // [Long edge, Short edge] distance (mm)
+pi_length_spacing = 58.0;    // Standard Pi mounting spacing (mm)
+hole2_offset = [hole1_offset[0] + pi_length_spacing, hole1_offset[1]];  // [64.5, 8.5] (mm)
+screw_depth = -3.0;          // Inset from wedge surface (mm)
 
 // ============================================
 // RENDER QUALITY
@@ -80,14 +75,14 @@ module wedge(width, length, height) {
 module wedge1_with_holes() {
     difference() {
         // Main wedge body
-        wedge(wedge1_width, wedge1_length, wedge1_height);
+        wedge(wedge1_size[0], wedge1_size[1], wedge1_size[2]);
         
         // First screw hole
-        translate([-hole1_offset_long, hole1_offset_short, screw_depth])
+        translate([-hole1_offset[0], hole1_offset[1], screw_depth])
             screw_cutout();
         
         // Second screw hole (Pi lengthwise spacing)
-        translate([-hole2_offset_long, hole1_offset_short, screw_depth])
+        translate([-hole2_offset[0], hole2_offset[1], screw_depth])
             screw_cutout();
     }
 }
@@ -98,7 +93,7 @@ module wedge1_with_holes() {
 // Front wedge without screw holes
 
 module wedge2_body() {
-    wedge(wedge2_width, wedge2_length, wedge2_height);
+    wedge(wedge2_size[0], wedge2_size[1], wedge2_size[2]);
 }
 
 // ============================================
@@ -110,7 +105,7 @@ module brain_mount() {
         wedge1_with_holes();
         
         // Wedge 2 (positioned between screw holes)
-        translate([wedge2_offset_x, 0, 0])
+        translate(wedge2_pos)
             wedge2_body();
     }
 }

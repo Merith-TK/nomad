@@ -15,33 +15,33 @@ use <parts/screw_cutout.scad>
 use <parts/support_column.scad>
 
 // ============================================
-// RASPBERRY PI 3B+ DIMENSIONS
+// BASEPLATE CONFIGURATION
 // ============================================
-pi_width = 60.0;   // Baseplate width (X dimension, left-right)
-pi_length = 70.0;  // Baseplate length (Y dimension, front-back)
+// All baseplate settings consolidated here for easy adjustment:
+// - Raspberry Pi dimensions and mounting
+// - Support column specifications
+// - Baseplate platform specifications
+// - Screw positioning
 
 // ============================================
-// MOUNTING HOLE POSITIONS
+// RASPBERRY PI 3B+ SPECIFICATIONS
 // ============================================
-// Hole edge offsets (measured from baseplate edges)
-hole_offset_from_edge_x = 5.5;  // Distance from left/right edges (mm)
-hole_offset_from_edge_y = 6.0;  // Distance from front/back edges (mm)
+pi_size = [60.0, 70.0];          // [Width, Length] (mm)
+pi_hole_offsets = [5.5, 6.0];    // [X edge, Y edge] distance from edges (mm)
 
 // ============================================
 // SUPPORT COLUMN SPECIFICATIONS
 // ============================================
-support_size = 25.0;            // 25×25mm footprint on puck top (mm)
-support_height = 7.0;           // Clearance above puck (mm)
-support_thickness = 3.0;        // Wall thickness (mm)
-support_corner_radius = 3.0;    // Rounded edge radius (mm)
+support_size = 25.0;             // 25×25mm footprint on puck top (mm)
+support_height = 7.0;            // Clearance above puck (mm)
+support_corner_radius = 3.0;     // Rounded edge radius (mm)
 
 // ============================================
-// BASEPLATE SPECIFICATIONS
+// BASEPLATE PLATFORM SPECIFICATIONS
 // ============================================
-baseplate_width = pi_width;      // 60mm (mm)
-baseplate_length = pi_length;    // 70mm (mm)
+baseplate_size = pi_size;        // [60, 70] matches Pi dimensions (mm)
 baseplate_thickness = 4.0;       // Platform thickness (mm)
-baseplate_offset_y = 7.5;        // Offset towards puck back (mm)
+baseplate_pos = [0, 7.5, support_height];  // [X, Y, Z] offset from support (mm)
 
 // ============================================
 // SCREW POSITIONING
@@ -57,8 +57,10 @@ $fn = 64;
 // CALCULATED VALUES
 // ============================================
 // Hole spacing (center-to-center for reference)
-pi_hole_spacing_x = 2 * (pi_width/2 - hole_offset_from_edge_x);   // 49mm (X/width)
-pi_hole_spacing_y = 2 * (pi_length/2 - hole_offset_from_edge_y);  // 58mm (Y/length)
+pi_hole_spacing = [
+    2 * (pi_size[0]/2 - pi_hole_offsets[0]),  // 49mm (X/width)
+    2 * (pi_size[1]/2 - pi_hole_offsets[1])   // 58mm (Y/length)
+];
 
 // Total assembly height
 total_height = support_height + baseplate_thickness;  // 11mm
@@ -70,7 +72,7 @@ total_height = support_height + baseplate_thickness;  // 11mm
 
 module baseplate_body() {
     // Platform is [width, length, thickness] = [X, Y, Z]
-    cube([baseplate_width, baseplate_length, baseplate_thickness], center=true);
+    cube([baseplate_size[0], baseplate_size[1], baseplate_thickness], center=true);
 }
 
 // ============================================
@@ -80,14 +82,16 @@ module baseplate_body() {
 
 module pi_mounting_holes() {
     // Calculate hole positions from baseplate center
-    hole_pos_x = baseplate_width/2 - hole_offset_from_edge_x;   // 24.5mm from center
-    hole_pos_y = baseplate_length/2 - hole_offset_from_edge_y;  // 29mm from center
+    hole_pos = [
+        baseplate_size[0]/2 - pi_hole_offsets[0],  // 24.5mm from center
+        baseplate_size[1]/2 - pi_hole_offsets[1]   // 29mm from center
+    ];
     
     for (x = [-1, 1]) {
         for (y = [-1, 1]) {
             translate([
-                x * hole_pos_x,
-                y * hole_pos_y,
+                x * hole_pos[0],
+                y * hole_pos[1],
                 -baseplate_thickness/2 + screw_inset_from_bottom
             ])
                 screw_cutout();
@@ -106,17 +110,17 @@ module baseplate_initial() {
                 support_column(support_size, support_height, support_corner_radius);
             
             // Baseplate platform (offset towards back/rounded edge of puck)
-            translate([0, baseplate_offset_y, support_height + baseplate_thickness/2])
+            translate([baseplate_pos[0], baseplate_pos[1], baseplate_pos[2] + baseplate_thickness/2])
                 baseplate_body();
             
             // Orientation marker (small notch on front edge)
-            translate([0, baseplate_offset_y + baseplate_length/2 - 2, support_height + baseplate_thickness - 0.5])
+            translate([baseplate_pos[0], baseplate_pos[1] + baseplate_size[1]/2 - 2, baseplate_pos[2] + baseplate_thickness - 0.5])
                 rotate([0, 45, 0])
                 cube([1, 3, 1], center=true);
         }
         
         // Cut mounting holes from baseplate
-        translate([0, baseplate_offset_y, support_height + baseplate_thickness/2])
+        translate([baseplate_pos[0], baseplate_pos[1], baseplate_pos[2] + baseplate_thickness/2])
             pi_mounting_holes();
     }
 }
