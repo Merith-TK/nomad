@@ -1,6 +1,8 @@
 # NOMAD Core
 **Networked Optimized Mobile Access Device**
 
+> **Note:** This project is developed with assistance from Claude Sonnet 4.5 via GitHub Copilot.
+
 A modular, 3D-printable forearm-mounted wearable computer platform built around the Raspberry Pi Zero 2W.
 
 ## What is NOMAD?
@@ -14,6 +16,9 @@ NOMAD Core is an open-source wearable computer designed to be worn on your left 
 The entire system mounts to an arm band via a quick-release puck mechanism, making it easy to put on and take off.
 
 ## Design Philosophy
+
+> **Core Principle: Modularity**  
+> The only fixed standards in NOMAD are the **armband mount**, **M2.5 screws**, and **33×33mm puck interface**. Everything else is designed to be customized and modified to your needs. Want to use a different SBC? Model your own brain mount. Need a bigger battery? Design a custom power module. The baseplate and puck system provide the foundation for whatever you want to build.
 
 - **Modular** - Swap out individual modules without rebuilding the whole system
 - **Ergonomic** - Worn comfortably on the forearm, no wrist rotation needed
