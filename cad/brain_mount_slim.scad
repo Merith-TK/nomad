@@ -1,0 +1,100 @@
+/*
+ * Nomad Core - Brain Mount Bracket
+ * Mounting bracket for compute module (Raspberry Pi or compatible)
+ * 
+ * Single wedge-shaped bracket with M2.5 screw holes for secure mounting
+ * Designed to attach to left side of main baseplate
+ */
+
+// ============================================
+// IMPORTS
+// ============================================
+use <parts/screw_cutout.scad>
+
+// ============================================
+// BRAIN MOUNT CONFIGURATION
+// ============================================
+// All brain mount settings consolidated here for easy adjustment:
+// - Wedge dimensions
+// - Screw hole positions (matching Pi 3B+ pattern)
+// - Component positioning
+
+// ============================================
+// WEDGE 1 DIMENSIONS (Long wedge with screw holes)
+// ============================================
+wedge1_size = [20.0, 70.0, 7.0];  // [Width, Length, Height] (mm)
+nose_round_radius = 1.2;          // Radius to soften wedge nose/corners (mm)
+
+// ============================================
+// SCREW HOLE POSITIONS
+// ============================================
+// Hole positions on Wedge 1 match Pi 3B+ mounting pattern
+hole1_offset = [6.5, 8.5];   // [Long edge, Short edge] distance (mm)
+pi_length_spacing = 58.0;    // Standard Pi mounting spacing (mm)
+hole2_offset = [hole1_offset[0] + pi_length_spacing, hole1_offset[1]];  // [64.5, 8.5] (mm)
+screw_depth = -3.0;          // Inset from wedge surface (mm)
+
+// ============================================
+// RENDER QUALITY
+// ============================================
+$fn = 64;
+
+// ============================================
+// RIGHT ANGLE WEDGE MODULE
+// ============================================
+// Creates a right-angle triangular prism
+//
+// Parameters:
+// - width: Triangle-to-triangle dimension (mm)
+// - length: Back wall to nose dimension (mm)
+// - height: Tall dimension (mm)
+
+module wedge(width, length, height) {
+    // Rotate to proper orientation for mounting
+    rotate([0, 0, 90])
+    rotate([90, 0, 0])
+    translate([0, 0, -length])
+    linear_extrude(height=length)
+        offset(r=nose_round_radius)
+        offset(delta=-nose_round_radius)
+            polygon([
+                [0, 0],        // Origin
+                [width, 0],    // Right edge
+                [0, height]    // Top corner
+            ]);
+}
+
+// ============================================
+// WEDGE 1 WITH SCREW HOLES
+// ============================================
+// Long wedge with two M2.5 screw holes matching Pi mounting pattern
+
+module wedge1_with_holes() {
+    difference() {
+        // Main wedge body
+        wedge(wedge1_size[0], wedge1_size[1], wedge1_size[2]);
+        
+        // First screw hole
+        translate([-hole1_offset[0], hole1_offset[1], screw_depth])
+            screw_cutout();
+        
+        // Second screw hole (Pi lengthwise spacing)
+        translate([-hole2_offset[0], hole2_offset[1], screw_depth])
+            screw_cutout();
+    }
+}
+
+// ============================================
+// COMPLETE BRAIN MOUNT ASSEMBLY
+// ============================================
+module brain_mount() {
+    union() {
+        // Wedge 1 (long wedge with screw holes)
+        wedge1_with_holes();
+    }
+}
+
+// ============================================
+// MAIN RENDER
+// ============================================
+brain_mount();

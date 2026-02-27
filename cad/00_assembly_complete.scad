@@ -11,7 +11,7 @@
 // ============================================
 use <puck_design.scad>
 use <baseplate_initial.scad>
-use <brain_mount.scad>
+use <brain_mount_slim.scad>
 
 // ============================================
 // ASSEMBLY CONFIGURATION
@@ -46,7 +46,7 @@ puck_pos = [0, 0, 0];  // [X, Y, Z] (mm)
 baseplate_pos = [0, 0, 3.5];  // [X, Y, Z] - Z=3.5 is puck height (mm)
 
 // Brain mount position (left side of baseplate)
-brain_mount_pos = [34, 42.5, 14.5];  // [X, Y, Z] (mm)
+brain_mount_pos = [35, 42.5, 14.9];  // [X, Y, Z] (mm)
 
 // ============================================
 // COMPONENT ROTATIONS
@@ -71,7 +71,7 @@ merge_pieces = [
     // Brain mount to baseplate bridge
     [
         "cuboid",
-        [5, 70, 4],           // Dimensions [W, L, H] (mm)
+        [5.5, 70, 4],           // Dimensions [W, L, H] (mm)
         [29.1, -27.5, 10.5],   // Position [X, Y, Z] (mm)
         [0, 0, 0]             // Rotation [X, Y, Z] (degrees)
     ]
