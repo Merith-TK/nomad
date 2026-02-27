@@ -40,6 +40,9 @@ OpenSCAD parametric designs for all 3D-printed components:
 - `hardware/DESIGN.md` - Complete design specifications and system architecture
 - `README.md` - Overview of planning documentation
 
+### 📖 Development Docs (`docs/`)
+- `SCAD_STYLE_GUIDE.md` - OpenSCAD coding standards and conventions
+
 ### ⚙️ Other Directories
 - `apps/` - Future: User applications for the device
 - `firmware/` - Future: System configurations and OS images
@@ -84,6 +87,15 @@ This repository includes a devcontainer with OpenSCAD and Python CAD tools pre-i
 2. Install "Dev Containers" extension
 3. Press `F1` → "Dev Containers: Reopen in Container"
 4. Wait for container build (first time only)
+
+### Contributing CAD Files
+
+When creating or modifying `.scad` files, please follow the [OpenSCAD Style Guide](docs/SCAD_STYLE_GUIDE.md) to maintain consistency across the project. The guide covers:
+- File structure and organization
+- Naming conventions (variables, modules, files)
+- Comment standards and documentation
+- Parameter grouping and calculated values
+- Module design patterns
 
 ## Hardware Specifications
 

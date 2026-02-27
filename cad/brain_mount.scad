@@ -1,38 +1,48 @@
 /*
  * Nomad Core - Brain Mount Bracket
- * Attaches to left side of main baseplate for mounting the "brain" module
+ * Mounting bracket for compute module (Raspberry Pi or compatible)
  * 
- * Two wedge-shaped mounting brackets with screw holes
+ * Two wedge-shaped brackets with M2.5 screw holes for secure mounting
+ * Designed to attach to left side of main baseplate
  */
 
-// Import screw cutout module
+// ============================================
+// IMPORTS
+// ============================================
 use <parts/screw_cutout.scad>
 
 // ============================================
-// WEDGE DIMENSIONS
+// WEDGE 1 DIMENSIONS (Long wedge with screw holes)
 // ============================================
-// Wedge 1 (long width wedge)
-wedge1_width = 20;    // Triangle-to-triangle (long width)
-wedge1_length = 83.0;   // Back wall to nose
-wedge1_height = 7.0;    // Tall dimension
+wedge1_width = 20.0;    // Triangle-to-triangle width (mm)
+wedge1_length = 83.0;   // Back wall to nose length (mm)
+wedge1_height = 7.0;    // Tall dimension (mm)
 
-// Wedge 2 (front wedge)
-wedge2_width = 40.25;    // Triangle-to-triangle
-wedge2_length = 20.0;  // Back wall to nose
-wedge2_height = 7.0;    // Tall dimension
+// ============================================
+// WEDGE 2 DIMENSIONS (Front wedge)
+// ============================================
+wedge2_width = 40.25;   // Triangle-to-triangle width (mm)
+wedge2_length = 20.0;   // Back wall to nose length (mm)
+wedge2_height = 7.0;    // Tall dimension (mm)
 
 // ============================================
 // SCREW HOLE POSITIONS
 // ============================================
-// Screw holes are on wedge 1 (the long 83mm width wedge)
-// First hole position (from left corner)
+// Hole positions on Wedge 1 match Pi 3B+ mounting pattern
 hole1_offset_short = 8.5;  // Distance from short edge (20mm edge)
 hole1_offset_long = 6.5;   // Distance from long edge (83mm edge)
 
-// Second hole spacing (along the long 83mm wedge)
-// Uses Pi 3B+ lengthwise hole spacing
-pi_length_spacing = 58.0;  // From baseplate_initial.scad
-hole2_offset_long = hole1_offset_long + pi_length_spacing;  // 8.5 + 58 = 66.5mm
+// Pi 3B+ lengthwise hole spacing for second hole
+pi_length_spacing = 58.0;  // Standard Pi mounting spacing (mm)
+hole2_offset_long = hole1_offset_long + pi_length_spacing;  // 6.5 + 58 = 64.5mm
+
+// Screw inset depth
+screw_depth = -3.0;  // Inset from wedge surface (mm)
+
+// ============================================
+// WEDGE 2 POSITION
+// ============================================
+wedge2_offset_x = -31.25;  // Position between screw holes (mm)
 
 // ============================================
 // RENDER QUALITY
@@ -42,31 +52,33 @@ $fn = 64;
 // ============================================
 // RIGHT ANGLE WEDGE MODULE
 // ============================================
+// Creates a right-angle triangular prism
+//
+// Parameters:
+// - width: Triangle-to-triangle dimension (mm)
+// - length: Back wall to nose dimension (mm)
+// - height: Tall dimension (mm)
+
 module wedge(width, length, height) {
-    // Create a right-angle triangular prism
-    // width = triangle-to-triangle dimension
-    // length = back wall to nose dimension
-    // height = tall dimension
-    
-    // Rotate counter-clockwise (90 degrees around Z axis)
+    // Rotate to proper orientation for mounting
     rotate([0, 0, 90])
     rotate([90, 0, 0])
     translate([0, 0, -length])
     linear_extrude(height=length)
         polygon([
-            [0, 0],              // Origin
-            [width, 0],          // Right edge
-            [0, height]          // Top corner
+            [0, 0],        // Origin
+            [width, 0],    // Right edge
+            [0, height]    // Top corner
         ]);
 }
 
 // ============================================
-// WEDGE 1 WITH SCREW HOLES (long width wedge)
+// WEDGE 1 WITH SCREW HOLES
 // ============================================
+// Long wedge with two M2.5 screw holes matching Pi mounting pattern
+
 module wedge1_with_holes() {
     difference() {
-        screw_depth = -3.0;
-        
         // Main wedge body
         wedge(wedge1_width, wedge1_length, wedge1_height);
         
@@ -74,15 +86,17 @@ module wedge1_with_holes() {
         translate([-hole1_offset_long, hole1_offset_short, screw_depth])
             screw_cutout();
         
-        // Second screw hole (spaced by Pi lengthwise spacing)
+        // Second screw hole (Pi lengthwise spacing)
         translate([-hole2_offset_long, hole1_offset_short, screw_depth])
             screw_cutout();
     }
 }
 
 // ============================================
-// WEDGE 2 (no holes)
+// WEDGE 2 BODY
 // ============================================
+// Front wedge without screw holes
+
 module wedge2_body() {
     wedge(wedge2_width, wedge2_length, wedge2_height);
 }
@@ -92,30 +106,16 @@ module wedge2_body() {
 // ============================================
 module brain_mount() {
     union() {
-        // Wedge 1 (long width wedge with screw holes)
+        // Wedge 1 (long wedge with screw holes)
         wedge1_with_holes();
         
-        // Wedge 2 (positioned between the two screw holes)
-        translate([-31.25, 0, 0])
+        // Wedge 2 (positioned between screw holes)
+        translate([wedge2_offset_x, 0, 0])
             wedge2_body();
     }
 }
 
 // ============================================
-// RENDER (when file is opened directly)
+// MAIN RENDER
 // ============================================
 brain_mount();
-
-// ============================================
-// INFO OUTPUT
-// ============================================
-echo("=== BRAIN MOUNT BRACKET ===");
-echo(str("Wedge 1 (long width): ", wedge1_width, "mm (W) x ", wedge1_length, "mm (L) x ", wedge1_height, "mm (H)"));
-echo(str("Wedge 2 (front): ", wedge2_width, "mm (W) x ", wedge2_length, "mm (L) x ", wedge2_height, "mm (H)"));
-echo("");
-echo("Screw holes in Wedge 1 (long width wedge):");
-echo(str("  Hole 1: ", hole1_offset_long, "mm from long edge, ", hole1_offset_short, "mm from short edge"));
-echo(str("  Hole 2: ", hole2_offset_long, "mm from long edge, ", hole1_offset_short, "mm from short edge"));
-echo(str("  Spacing: ", pi_length_spacing, "mm (matches Pi lengthwise spacing)"));
-echo("");
-echo("Screw spec: M2.5 x 16mm with TR8 hex head");

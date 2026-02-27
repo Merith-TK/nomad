@@ -2,21 +2,37 @@
  * Nomad Core - Support Column Module
  * Reusable support structure with rounded edges
  * 
- * Parameters are passed as function arguments
+ * Creates a solid rectangular column with rounded corners using hull operation
  */
+
+// ============================================
+// DEFAULT PARAMETERS
+// ============================================
+default_size = 25.0;           // Default footprint size (mm)
+default_height = 7.0;          // Default column height (mm)
+default_corner_radius = 3.0;   // Default corner radius (mm)
+
+// ============================================
+// RENDER QUALITY
+// ============================================
+$fn = 64;
 
 // ============================================
 // SUPPORT COLUMN MODULE
 // ============================================
+// Creates a solid support column with rounded corners
+//
 // Parameters:
-// - size: footprint size (e.g., 25mm)
-// - height: column height (e.g., 7mm)
-// - corner_radius: rounded corner radius (e.g., 3mm)
+// - size: Square footprint dimension (mm)
+// - height: Column height (mm)
+// - corner_radius: Radius of rounded corners (mm)
+//
+// Example: support_column(25, 7, 3);
 
 module support_column(size=25, height=7, corner_radius=3) {
     // Solid hull with rounded corners
     hull() {
-        // Four rounded corners
+        // Four rounded corners positioned at calculated offsets
         for (x = [-1, 1]) {
             for (y = [-1, 1]) {
                 translate([
@@ -30,4 +46,7 @@ module support_column(size=25, height=7, corner_radius=3) {
     }
 }
 
-support_column();
+// ============================================
+// TEST RENDER (uncomment for visualization)
+// ============================================
+// support_column(default_size, default_height, default_corner_radius);
