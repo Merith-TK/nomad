@@ -15,6 +15,9 @@ pip install -r requirements.txt
 echo "Setting up git hooks..."
 git config --global --add safe.directory /workspaces/nomad-core
 
+mkdir -p ~/.config/OpenSCAD
+cp .devcontainer/OpenSCAD.conf ~/.config/OpenSCAD/OpenSCAD.conf
+
 echo "✅ Dev container setup complete!"
 echo "📦 Installed: OpenSCAD, Python 3D libraries"
 echo "🎨 Ready to create 3D models with code!"

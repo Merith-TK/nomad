@@ -91,12 +91,54 @@ Use divider comments to separate logical sections:
 
 1. **File header comment** (/* ... */)
 2. **IMPORTS** - `use <>` and `include <>` statements
-3. **MAIN DIMENSIONS** - Primary size parameters
-4. **FEATURE SECTIONS** - Group related parameters (mounting holes, corner rounding, etc.)
-5. **RENDER QUALITY** - `$fn` setting
-6. **CALCULATED VALUES** - Derived from parameters (optional but recommended)
-7. **MODULE DEFINITIONS** - All module declarations
-8. **MAIN RENDER** - The actual component render call
+3. **CONFIGURATION OVERVIEW** - Brief comment explaining all settings (optional but recommended)
+4. **MAIN DIMENSIONS** - Primary size parameters
+5. **FEATURE SECTIONS** - Group related parameters (mounting holes, corner rounding, etc.)
+6. **RENDER QUALITY** - `$fn` setting
+7. **CALCULATED VALUES** - Derived from parameters (optional but recommended)
+8. **MODULE DEFINITIONS** - All module declarations
+9. **MAIN RENDER** - The actual component render call
+
+## Consolidated Configuration Format
+
+**Prefer array notation** for related values (positions, rotations, dimensions):
+
+```scad
+// ✅ GOOD - Consolidated array format
+wedge1_size = [20.0, 83.0, 7.0];  // [Width, Length, Height] (mm)
+wedge1_pos = [0, 0, 0];           // [X, Y, Z] position (mm)
+wedge1_rot = [0, 0, 0];           // [X, Y, Z] rotation (degrees)
+
+hole_offset = [6.5, 8.5];         // [Long edge, Short edge] distance (mm)
+pi_size = [60.0, 70.0];           // [Width, Length] (mm)
+
+// ❌ AVOID - Separate variables for each component
+wedge1_width = 20.0;
+wedge1_length = 83.0;
+wedge1_height = 7.0;
+wedge1_pos_x = 0;
+wedge1_pos_y = 0;
+wedge1_pos_z = 0;
+```
+
+**Add configuration overview** comments at the top of parameter sections:
+
+```scad
+// ============================================
+// BRAIN MOUNT CONFIGURATION
+// ============================================
+// All brain mount settings consolidated here for easy adjustment:
+// - Wedge dimensions (2 wedges with different sizes)
+// - Screw hole positions (matching Pi 3B+ pattern)
+// - Component positioning
+```
+
+**Benefits:**
+- Fewer variables to manage
+- Easier to see relationships between values
+- More compact and readable
+- Matches OpenSCAD's native array syntax
+- Position and rotation kept adjacent
 
 ## Comments
 
