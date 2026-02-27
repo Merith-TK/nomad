@@ -41,6 +41,7 @@ support_corner_radius = 3.0;     // Rounded edge radius (mm)
 // ============================================
 baseplate_size = pi_size;        // [60, 70] matches Pi dimensions (mm)
 baseplate_thickness = 4.0;       // Platform thickness (mm)
+baseplate_corner_radius = 2.0;   // Outer corner radius for safer handling (mm)
 baseplate_pos = [0, 7.5, support_height];  // [X, Y, Z] offset from support (mm)
 
 // ============================================
@@ -72,7 +73,12 @@ total_height = support_height + baseplate_thickness;  // 11mm
 
 module baseplate_body() {
     // Platform is [width, length, thickness] = [X, Y, Z]
-    cube([baseplate_size[0], baseplate_size[1], baseplate_thickness], center=true);
+    safe_corner_radius = min(baseplate_corner_radius, baseplate_size[0] / 2, baseplate_size[1] / 2);
+
+    linear_extrude(height=baseplate_thickness, center=true)
+        offset(r=safe_corner_radius)
+        offset(delta=-safe_corner_radius)
+            square([baseplate_size[0], baseplate_size[1]], center=true);
 }
 
 // ============================================

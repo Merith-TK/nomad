@@ -22,6 +22,7 @@ use <../parts/screw_cutout.scad>
 // ============================================
 base_size = [58.75, 85.0, 4.8];     // [Width(X), Length(Y), Height(Z)] (mm)
 cutout_size = [53.25, 79.5, 40.0];  // [Width(X), Length(Y), Height(Z)] (mm)
+base_corner_radius = 2.0;           // Outer corner radius of main plate (mm)
 
 // ============================================
 // CUTOUT PLACEMENT
@@ -131,11 +132,20 @@ screw_hole_4_pos = [
 // ============================================
 // MODEL
 // ============================================
+module rounded_base_body(size, corner_radius) {
+    safe_corner_radius = min(corner_radius, size[0] / 2, size[1] / 2);
+
+    linear_extrude(height=size[2])
+        offset(r=safe_corner_radius)
+        offset(delta=-safe_corner_radius)
+            square([size[0], size[1]], center=false);
+}
+
 module x306_pi_brainplate() {
     difference() {
         union() {
             difference() {
-                cube(base_size, center=false);
+                rounded_base_body(base_size, base_corner_radius);
                 translate(cutout_pos)
                     cube(cutout_size, center=false);
             }
