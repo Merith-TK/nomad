@@ -101,6 +101,7 @@ Full specifications in [`plans/hardware/DESIGN.md`](plans/hardware/DESIGN.md)
 | **Raspberry Pi Zero 2WH** | Kit includes GPIO header, heatsink, mini-HDMI adapter, and OTG cable | [Amazon](https://www.amazon.com/dp/B0DRRDJKDV/) |
 | **Geekworm X306 UPS** | UPS HAT for single 18650 battery | [Amazon](https://www.amazon.com/dp/B0B74NT38D/) |
 | **M2.5 Screw Kit** | Assorted M2.5 screws, nuts, lock nuts, and washers | [Amazon](https://www.amazon.com/dp/B0FJ1YMG3J/) |
+| **Arm Band Mount** | Phone-style arm/wristband for wearable mounting | [Amazon](https://www.amazon.com/dp/B07Z76ZB8G/) |
 
 ### USB Hub (Choose One)
 
@@ -115,7 +116,6 @@ Pick based on your connectivity needs:
 
 ### Additional Items (Not Linked)
 - 1× 18650 battery cell
-- Arm band mount (phone band style)
 - 3D printer filament (PLA/PETG recommended)
 
 ## Current Status
