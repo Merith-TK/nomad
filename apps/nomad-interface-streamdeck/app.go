@@ -305,10 +305,8 @@ func (a *App) handleKeyEvent(event streamdeck.KeyEvent) error {
 			if err := a.scriptMgr.TriggerScript(item.Script); err != nil {
 				log.Printf("Script error: %v", err)
 			}
-			// Re-render page to restore icons (trigger may have drawn on screen)
-			if err := a.nav.RenderPage(); err != nil {
-				log.Printf("RenderPage failed: %v", err)
-			}
+			// Refresh only the triggered key instead of redrawing the whole page
+			a.scriptMgr.RefreshScript(item.Script)
 		}
 	}
 

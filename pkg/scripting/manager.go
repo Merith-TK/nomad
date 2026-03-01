@@ -346,6 +346,28 @@ func (m *ScriptManager) TriggerScript(scriptPath string) error {
 	return runner.RunTrigger()
 }
 
+// RefreshScript immediately runs passive() for one script and pushes the result
+// through the key-update callback. Use this after a trigger to update just the
+// pressed button instead of redrawing the entire display.
+func (m *ScriptManager) RefreshScript(scriptPath string) {
+	m.mu.RLock()
+	runner := m.runners[scriptPath]
+	keyIndex, visible := m.visibleScripts[scriptPath]
+	callback := m.onKeyUpdate
+	m.mu.RUnlock()
+
+	if runner == nil || !visible || callback == nil || !runner.HasPassive() {
+		return
+	}
+
+	appearance, err := runner.RunPassive(keyIndex)
+	if err != nil || appearance == nil {
+		return
+	}
+
+	callback(keyIndex, appearance)
+}
+
 // requestRefresh is called when a script wants a display refresh.
 // Sets a flag that will be picked up by the next passive loop tick.
 func (m *ScriptManager) requestRefresh() {
