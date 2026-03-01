@@ -122,12 +122,20 @@ func (r *ScriptRunner) registerModules() {
 	httpMod := modules.NewHTTPModule()
 	systemMod := modules.NewSystemModule()
 	sdMod := modules.NewStreamDeckModule(r.device)
+	jsonMod := modules.NewJSONModule()
+	fileMod := modules.NewFileModule()
+	timeMod := modules.NewTimeModule()
+	logMod := modules.NewLogModule()
 
 	// Register modules
 	r.L.PreloadModule("shell", shellMod.Loader)
 	r.L.PreloadModule("http", httpMod.Loader)
 	r.L.PreloadModule("system", systemMod.Loader)
 	r.L.PreloadModule("streamdeck", sdMod.Loader)
+	r.L.PreloadModule("json", jsonMod.Loader)
+	r.L.PreloadModule("file", fileMod.Loader)
+	r.L.PreloadModule("time", timeMod.Loader)
+	r.L.PreloadModule("log", logMod.Loader)
 
 	// Set globals
 	r.L.SetGlobal("SCRIPT_PATH", lua.LString(r.ScriptPath))

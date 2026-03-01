@@ -31,18 +31,17 @@ import (
 )
 
 const (
-	// PassiveFPS is the rate at which passive functions are called.
-	PassiveFPS = 5
-	// PassiveInterval is the duration between passive calls.
-	PassiveInterval = time.Second / PassiveFPS
+	// DefaultPassiveFPS is the default rate at which passive functions are called.
+	DefaultPassiveFPS = 2
 )
 
 // ScriptManager coordinates all script runners and the passive loop.
 type ScriptManager struct {
 	mu sync.RWMutex
 
-	device    *streamdeck.Device
-	configDir string
+	device     *streamdeck.Device
+	configDir  string
+	passiveFPS int
 
 	// All loaded script runners, keyed by script path
 	runners map[string]*ScriptRunner
@@ -64,10 +63,14 @@ type ScriptManager struct {
 }
 
 // NewScriptManager creates a new script manager.
-func NewScriptManager(dev *streamdeck.Device, configDir string) *ScriptManager {
+func NewScriptManager(dev *streamdeck.Device, configDir string, passiveFPS int) *ScriptManager {
+	if passiveFPS <= 0 {
+		passiveFPS = DefaultPassiveFPS
+	}
 	return &ScriptManager{
 		device:         dev,
 		configDir:      configDir,
+		passiveFPS:     passiveFPS,
 		runners:        make(map[string]*ScriptRunner),
 		visibleScripts: make(map[string]int),
 	}
@@ -176,7 +179,7 @@ func (m *ScriptManager) runBootAnimation() {
 	}
 }
 
-// StartPassiveLoop starts the 15fps passive update loop.
+// StartPassiveLoop starts the passive update loop at the configured FPS.
 func (m *ScriptManager) StartPassiveLoop() {
 	m.mu.Lock()
 	if m.passiveRunning {
@@ -189,9 +192,15 @@ func (m *ScriptManager) StartPassiveLoop() {
 	go m.passiveLoop()
 }
 
-// passiveLoop runs passive functions at 15fps.
+// passiveLoop runs passive functions at the configured FPS.
 func (m *ScriptManager) passiveLoop() {
-	ticker := time.NewTicker(PassiveInterval)
+	fps := m.passiveFPS
+	if fps <= 0 {
+		fps = DefaultPassiveFPS
+	}
+	interval := time.Second / time.Duration(fps)
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {

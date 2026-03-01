@@ -35,6 +35,7 @@ type App struct {
 	device     *streamdeck.Device
 	scriptMgr  *scripting.ScriptManager
 	nav        *streamdeck.Navigator
+	config     *Config
 	configPath string
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -56,6 +57,27 @@ func NewApp() *App {
 //
 // Returns an error if initialization fails at any step.
 func (a *App) Init() error {
+	// Determine config path first
+	configPath := getConfigPath()
+
+	// Ensure config directory exists
+	absConfigPath, err := ensureConfigDir(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+	a.configPath = absConfigPath
+
+	// Load configuration
+	config, err := LoadConfig(absConfigPath)
+	if err != nil {
+		log.Printf("Warning: Failed to load config, using defaults: %v", err)
+		config = DefaultConfig()
+	}
+	a.config = config
+
+	fmt.Printf("\n[*] Config directory: %s\n", absConfigPath)
+	fmt.Printf("[*] Configuration loaded\n")
+
 	// Initialize the streamdeck library
 	if err := streamdeck.Init(); err != nil {
 		return fmt.Errorf("failed to init streamdeck: %w", err)
@@ -97,26 +119,16 @@ func (a *App) Init() error {
 	}
 	a.device = dev
 
-	// Set brightness
-	if err := dev.SetBrightness(75); err != nil {
+	// Set brightness from config
+	if err := dev.SetBrightness(a.config.Application.Brightness); err != nil {
 		log.Printf("SetBrightness failed: %v", err)
 	}
 
-	// Determine config path
-	configPath := getConfigPath()
-
-	// Ensure config directory exists
-	absConfigPath, err := ensureConfigDir(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-	a.configPath = absConfigPath
-
-	fmt.Printf("\n[*] Config directory: %s\n", absConfigPath)
+	fmt.Printf("\n[*] Config directory: %s\n", a.configPath)
 
 	// Create script manager and boot (loads scripts, starts background workers)
 	fmt.Println("[*] Booting script manager...")
-	a.scriptMgr = scripting.NewScriptManager(dev, absConfigPath)
+	a.scriptMgr = scripting.NewScriptManager(dev, absConfigPath, a.config.Application.PassiveFPS)
 
 	// Create a context for the entire application
 	a.ctx, a.cancel = context.WithCancel(context.Background())
