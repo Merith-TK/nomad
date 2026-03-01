@@ -1,3 +1,21 @@
+// Package scripting provides Lua script execution and management for Stream Deck integration.
+//
+// This package enables programmable Stream Deck functionality through Lua scripts,
+// providing modules for system interaction, HTTP requests, shell commands, and
+// Stream Deck control. Scripts can define background workers, passive updates,
+// and trigger actions.
+//
+// Key components:
+// - ScriptManager: Coordinates multiple script runners and passive updates
+// - ScriptRunner: Manages individual Lua script lifecycle
+// - Modules: Preloaded Lua modules for various system interactions
+// - Image handling: Caching and loading of button images
+//
+// Contributors can extend functionality by:
+// - Adding new Lua modules in the modules/ subdirectory
+// - Implementing custom script runners
+// - Extending the image loading system
+// - Adding new script lifecycle hooks
 package scripting
 
 import (

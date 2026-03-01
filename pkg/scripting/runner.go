@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/merith-tk/nomad/pkg/scripting/modules"
 	"github.com/merith-tk/nomad/pkg/streamdeck"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -116,17 +117,17 @@ func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string
 
 // registerModules adds all available modules to the Lua state.
 func (r *ScriptRunner) registerModules() {
-	// Shell module
-	r.L.PreloadModule("shell", r.loaderShell)
+	// Create module instances
+	shellMod := modules.NewShellModule()
+	httpMod := modules.NewHTTPModule()
+	systemMod := modules.NewSystemModule()
+	sdMod := modules.NewStreamDeckModule(r.device)
 
-	// HTTP module
-	r.L.PreloadModule("http", r.loaderHTTP)
-
-	// System module
-	r.L.PreloadModule("system", r.loaderSystem)
-
-	// StreamDeck module
-	r.L.PreloadModule("streamdeck", r.loaderStreamDeck)
+	// Register modules
+	r.L.PreloadModule("shell", shellMod.Loader)
+	r.L.PreloadModule("http", httpMod.Loader)
+	r.L.PreloadModule("system", systemMod.Loader)
+	r.L.PreloadModule("streamdeck", sdMod.Loader)
 
 	// Set globals
 	r.L.SetGlobal("SCRIPT_PATH", lua.LString(r.ScriptPath))
@@ -288,11 +289,11 @@ func (r *ScriptRunner) backgroundLoop() {
 // Returns: (finished bool, sleepMs int, err error)
 func (r *ScriptRunner) runBackgroundCoroutine() (bool, int, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	// Get background function
 	fn := r.L.GetGlobal("background")
 	if fn.Type() != lua.LTFunction {
+		r.mu.Unlock()
 		return true, 0, nil
 	}
 	bgFn := fn.(*lua.LFunction)
@@ -303,21 +304,34 @@ func (r *ScriptRunner) runBackgroundCoroutine() (bool, int, error) {
 		r.bgFunc = bgFn
 	}
 
-	// Resume the coroutine
-	// First call: pass function and state argument
-	// Subsequent calls: pass nil function (already on stack)
+	// Prepare resume arguments
+	var resumeArgs []lua.LValue
+	if r.bgFunc != nil {
+		// First resume - pass function and state
+		resumeArgs = []lua.LValue{r.bgFunc, r.state}
+		r.bgFunc = nil // Clear so subsequent resumes don't pass function again
+	} else {
+		// Subsequent resume - no function needed
+		resumeArgs = []lua.LValue{nil}
+	}
+
+	r.mu.Unlock() // Release mutex during Lua execution
+
+	// Resume the coroutine (this may take time)
 	var status lua.ResumeState
 	var err error
 	var values []lua.LValue
 
-	if r.bgFunc != nil {
+	if len(resumeArgs) > 1 {
 		// First resume - pass function and state
-		status, err, values = r.L.Resume(r.bgThread, r.bgFunc, r.state)
-		r.bgFunc = nil // Clear so subsequent resumes don't pass function again
+		status, err, values = r.L.Resume(r.bgThread, resumeArgs[0].(*lua.LFunction), resumeArgs[1])
 	} else {
 		// Subsequent resume - no function needed
 		status, err, values = r.L.Resume(r.bgThread, nil)
 	}
+
+	r.mu.Lock() // Re-acquire mutex for state updates
+	defer r.mu.Unlock()
 
 	if err != nil {
 		return false, 0, err
