@@ -98,7 +98,8 @@ func main() {
 	}
 
 	fmt.Println("\n[*] Navigation ready (Ctrl+C to exit)...")
-	fmt.Println("    - Press folder buttons to navigate into them")
+	fmt.Println("    - Column 0: Reserved (Back, Toggle1, Toggle2)")
+	fmt.Println("    - Columns 1-4: Folder/action buttons")
 	fmt.Println("    - Press '<-' to go back\n")
 
 	// Listen for key presses
@@ -131,6 +132,16 @@ func main() {
 		item, navigated, err := nav.HandleKeyPress(event.Key)
 		if err != nil {
 			log.Printf("Error handling key: %v", err)
+			continue
+		}
+
+		// Check for toggle state changes
+		if event.Key == streamdeck.KeyToggle1 {
+			fmt.Printf("[*] Toggle1: %v\n", nav.GetToggleState(streamdeck.KeyToggle1))
+			continue
+		}
+		if event.Key == streamdeck.KeyToggle2 {
+			fmt.Printf("[*] Toggle2: %v\n", nav.GetToggleState(streamdeck.KeyToggle2))
 			continue
 		}
 

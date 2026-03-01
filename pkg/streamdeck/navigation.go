@@ -31,22 +31,69 @@ type Page struct {
 	TotalPages int        // Total number of pages
 }
 
+// Reserved key indices (column 0 on a 5-column deck)
+// Layout: key index = row * cols + col
+// Row 0: 0,1,2,3,4
+// Row 1: 5,6,7,8,9
+// Row 2: 10,11,12,13,14
+//
+// TODO: Reserved keys are currently hardcoded for MK.2 (5 cols x 3 rows).
+// These should be dynamically calculated based on the device model's row count
+// and column layout. Consider: ReservedKeys = [0, cols, cols*2, ...] for col 0.
+const (
+	KeyBack    = 0  // Row 0, Col 0 - Navigate back
+	KeyToggle1 = 5  // Row 1, Col 0 - Reserved toggle (placeholder)
+	KeyToggle2 = 10 // Row 2, Col 0 - Reserved toggle (placeholder)
+)
+
 // Navigator manages folder-based navigation on a Stream Deck.
 type Navigator struct {
-	dev        *Device
-	rootPath   string
-	currentDir string
-	pageIndex  int
+	dev          *Device
+	rootPath     string
+	currentDir   string
+	pageIndex    int
+	contentKeys  []int        // Key indices available for content (excludes column 0)
+	reservedKeys []int        // Key indices for reserved functions (column 0)
+	toggleStates map[int]bool // Toggle state for dummy keys
 }
 
 // NewNavigator creates a new navigator for the given device and root config path.
 func NewNavigator(dev *Device, rootPath string) *Navigator {
-	return &Navigator{
-		dev:        dev,
-		rootPath:   rootPath,
-		currentDir: rootPath,
-		pageIndex:  0,
+	n := &Navigator{
+		dev:          dev,
+		rootPath:     rootPath,
+		currentDir:   rootPath,
+		pageIndex:    0,
+		toggleStates: make(map[int]bool),
 	}
+	n.calculateKeyLayout()
+	return n
+}
+
+// calculateKeyLayout determines which keys are for content vs reserved.
+func (n *Navigator) calculateKeyLayout() {
+	cols := n.dev.Cols()
+	rows := n.dev.Rows()
+
+	n.contentKeys = nil
+	n.reservedKeys = nil
+
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			keyIndex := row*cols + col
+			if col == 0 {
+				// Column 0 is reserved
+				n.reservedKeys = append(n.reservedKeys, keyIndex)
+			} else {
+				n.contentKeys = append(n.contentKeys, keyIndex)
+			}
+		}
+	}
+}
+
+// ContentKeyCount returns the number of keys available for content.
+func (n *Navigator) ContentKeyCount() int {
+	return len(n.contentKeys)
 }
 
 // CurrentPath returns the current directory path.
@@ -70,7 +117,7 @@ func (n *Navigator) LoadPage() (*Page, error) {
 	var items []PageItem
 	for _, entry := range entries {
 		// Skip hidden files
-		if entry.Name()[0] == '.' {
+		if len(entry.Name()) > 0 && entry.Name()[0] == '.' {
 			continue
 		}
 
@@ -97,11 +144,8 @@ func (n *Navigator) LoadPage() (*Page, error) {
 		return items[i].Name < items[j].Name
 	})
 
-	// Calculate pagination
-	keysAvailable := n.dev.Keys()
-	if !n.IsAtRoot() {
-		keysAvailable-- // Reserve one key for "back" button
-	}
+	// Calculate pagination using content keys only (excludes reserved column)
+	keysAvailable := n.ContentKeyCount()
 
 	totalPages := 1
 	if len(items) > keysAvailable {
@@ -204,23 +248,16 @@ func (n *Navigator) RenderPage() error {
 		return fmt.Errorf("clear: %w", err)
 	}
 
-	keyIndex := 0
+	// Render reserved column (column 0)
+	n.renderReservedKeys()
 
-	// If not at root, first key is "back"
-	if !n.IsAtRoot() {
-		img := n.createTextImage("<-", color.RGBA{100, 100, 100, 255})
-		if err := n.dev.SetImage(keyIndex, img); err != nil {
-			return fmt.Errorf("set back button: %w", err)
-		}
-		keyIndex++
-	}
-
-	// Render page items
-	for _, item := range page.Items {
-		if keyIndex >= n.dev.Keys() {
+	// Render content items on remaining keys (columns 1-4)
+	for i, item := range page.Items {
+		if i >= len(n.contentKeys) {
 			break
 		}
 
+		keyIndex := n.contentKeys[i]
 		var img image.Image
 		if item.IsFolder {
 			// Folder: blue background
@@ -233,10 +270,40 @@ func (n *Navigator) RenderPage() error {
 		if err := n.dev.SetImage(keyIndex, img); err != nil {
 			return fmt.Errorf("set key %d: %w", keyIndex, err)
 		}
-		keyIndex++
 	}
 
 	return nil
+}
+
+// renderReservedKeys renders the reserved column buttons (column 0).
+func (n *Navigator) renderReservedKeys() {
+	// Key 0 (row 0, col 0): Back button
+	if !n.IsAtRoot() {
+		img := n.createTextImage("<-", color.RGBA{100, 100, 100, 255})
+		n.dev.SetImage(KeyBack, img)
+	} else {
+		// At root - show home indicator
+		img := n.createTextImage("HOME", color.RGBA{50, 50, 50, 255})
+		n.dev.SetImage(KeyBack, img)
+	}
+
+	// Key 5 (row 1, col 0): Toggle 1 (placeholder)
+	if n.toggleStates[KeyToggle1] {
+		img := n.createTextImage("T1:ON", color.RGBA{0, 150, 0, 255})
+		n.dev.SetImage(KeyToggle1, img)
+	} else {
+		img := n.createTextImage("T1", color.RGBA{80, 80, 80, 255})
+		n.dev.SetImage(KeyToggle1, img)
+	}
+
+	// Key 10 (row 2, col 0): Toggle 2 (placeholder)
+	if n.toggleStates[KeyToggle2] {
+		img := n.createTextImage("T2:ON", color.RGBA{0, 150, 0, 255})
+		n.dev.SetImage(KeyToggle2, img)
+	} else {
+		img := n.createTextImage("T2", color.RGBA{80, 80, 80, 255})
+		n.dev.SetImage(KeyToggle2, img)
+	}
 }
 
 // HandleKeyPress handles a key press and returns the action to take.
@@ -248,33 +315,56 @@ func (n *Navigator) HandleKeyPress(keyIndex int) (*PageItem, bool, error) {
 		return nil, false, err
 	}
 
-	adjustedIndex := keyIndex
-
-	// If not at root, first key is "back"
-	if !n.IsAtRoot() {
-		if keyIndex == 0 {
-			n.NavigateBack()
+	// Check if this is a reserved key (column 0)
+	switch keyIndex {
+	case KeyBack:
+		if n.NavigateBack() {
 			return nil, true, nil
 		}
-		adjustedIndex = keyIndex - 1
-	}
+		return nil, false, nil
 
-	// Check if this is a valid item
-	if adjustedIndex < 0 || adjustedIndex >= len(page.Items) {
+	case KeyToggle1:
+		// Toggle state and re-render
+		n.toggleStates[KeyToggle1] = !n.toggleStates[KeyToggle1]
+		n.renderReservedKeys()
+		return nil, false, nil
+
+	case KeyToggle2:
+		// Toggle state and re-render
+		n.toggleStates[KeyToggle2] = !n.toggleStates[KeyToggle2]
+		n.renderReservedKeys()
 		return nil, false, nil
 	}
 
-	item := &page.Items[adjustedIndex]
-
-	if item.IsFolder {
-		if err := n.NavigateInto(item.Path); err != nil {
-			return nil, false, err
+	// Check if this is a content key
+	for i, ck := range n.contentKeys {
+		if ck == keyIndex {
+			if i < len(page.Items) {
+				item := &page.Items[i]
+				if item.IsFolder {
+					if err := n.NavigateInto(item.Path); err != nil {
+						return nil, false, err
+					}
+					return nil, true, nil
+				}
+				// It's an action/script
+				return item, false, nil
+			}
+			return nil, false, nil // Empty key
 		}
-		return nil, true, nil
 	}
 
-	// It's an action/script
-	return item, false, nil
+	return nil, false, nil
+}
+
+// GetToggleState returns the state of a toggle key.
+func (n *Navigator) GetToggleState(keyIndex int) bool {
+	return n.toggleStates[keyIndex]
+}
+
+// SetToggleState sets the state of a toggle key.
+func (n *Navigator) SetToggleState(keyIndex int, state bool) {
+	n.toggleStates[keyIndex] = state
 }
 
 // createTextImage creates a simple image with text.
