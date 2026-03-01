@@ -3,7 +3,6 @@ package scripting
 import (
 	"context"
 	"fmt"
-	"image/color"
 	"os"
 	"path/filepath"
 	"sync"
@@ -63,30 +62,18 @@ func (m *ScriptManager) SetKeyUpdateCallback(cb func(keyIndex int, appearance *K
 }
 
 // Boot scans the config directory and loads all scripts.
-// Shows a loading animation during boot.
+// Runs boot animation if _boot.lua exists, then loads all scripts.
 func (m *ScriptManager) Boot(ctx context.Context) error {
 	m.mu.Lock()
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.mu.Unlock()
 
-	// Show loading indicator on center key (key 7 for 5x3 layout)
-	centerKey := 7
-	if m.device != nil && m.device.Model.Keys > 0 {
-		centerKey = (m.device.Model.Rows/2)*m.device.Model.Cols + (m.device.Model.Cols / 2)
-	}
-
-	// Clear and show loading
-	if m.device != nil {
-		m.device.Clear()
-		m.device.SetKeyColor(centerKey, color.RGBA{255, 165, 0, 255}) // Orange "loading"
-	}
-
-	// Check for boot animation script
+	// Check for boot animation script - runs synchronously
 	bootPath := filepath.Join(m.configDir, "_boot.lua")
 	if _, err := os.Stat(bootPath); err == nil {
 		m.bootScriptPath = bootPath
-		// Run boot animation in background while loading
-		go m.runBootAnimation()
+		// Run boot animation synchronously (blocks until complete)
+		m.runBootAnimation()
 	}
 
 	// Scan for all .lua files recursively
@@ -215,6 +202,10 @@ func (m *ScriptManager) runPassiveUpdate() {
 		return
 	}
 
+	if len(visible) == 0 {
+		return
+	}
+
 	for scriptPath, keyIndex := range visible {
 		m.mu.RLock()
 		runner := m.runners[scriptPath]
@@ -226,7 +217,6 @@ func (m *ScriptManager) runPassiveUpdate() {
 
 		appearance, err := runner.RunPassive(keyIndex)
 		if err != nil {
-			// Silent fail for passive - don't spam logs at 15fps
 			continue
 		}
 

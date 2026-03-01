@@ -28,7 +28,7 @@ func main() {
 	defer streamdeck.Exit()
 
 	// Probe for all Stream Deck devices
-	fmt.Println("\n[*] Scanning for Stream Deck devices...\n")
+	fmt.Println("\n[*] Scanning for Stream Deck devices...")
 
 	devices, err := streamdeck.Enumerate()
 	if err != nil {
@@ -154,7 +154,7 @@ func main() {
 	fmt.Println("\n[*] Navigation ready (Ctrl+C to exit)...")
 	fmt.Println("    - Column 0: Reserved (Back, Toggle1, Toggle2)")
 	fmt.Println("    - Columns 1-4: Folder/action buttons")
-	fmt.Println("    - Press '<-' to go back\n")
+	fmt.Println("    - Press '<-' to go back")
 
 	// Update visible scripts for initial page
 	updateVisibleScripts()
@@ -177,9 +177,6 @@ func main() {
 		if !event.Pressed {
 			continue
 		}
-
-		col, row := dev.KeyToCoord(event.Key)
-		fmt.Printf("[D] Key %d pressed (col %d, row %d)\n", event.Key, col, row)
 
 		// Handle the key press
 		item, navigated, err := nav.HandleKeyPress(event.Key)

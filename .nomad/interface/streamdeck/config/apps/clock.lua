@@ -6,14 +6,8 @@ local system = require("system")
 -- No background needed - passive updates at 15fps
 -- No trigger needed - this is display-only
 
--- Track last second to reduce string updates
-local last_second = -1
-
 -- Passive: show current time
 function passive(key, state)
-    -- Get current time components (using os.date via shell)
-    -- Note: This is a simple demo. In production, you'd want a more efficient approach.
-    
     -- Update state every second
     local current = os.time()
     if state.last_time ~= current then

@@ -116,8 +116,8 @@ func (n *Navigator) LoadPage() (*Page, error) {
 	// Filter and sort entries
 	var items []PageItem
 	for _, entry := range entries {
-		// Skip hidden files
-		if len(entry.Name()) > 0 && entry.Name()[0] == '.' {
+		// Skip hidden files and special files (starting with . or _)
+		if len(entry.Name()) > 0 && (entry.Name()[0] == '.' || entry.Name()[0] == '_') {
 			continue
 		}
 

@@ -1,4 +1,4 @@
-﻿-- shutdown.lua - System shutdown with confirmation animation
+-- shutdown.lua - System shutdown with confirmation animation
 -- Demonstrates: trigger-only script (no background/passive needed)
 --
 -- WARNING: Actual shutdown command commented out for safety
@@ -28,10 +28,6 @@ function trigger(state)
             streamdeck.clear()
             system.sleep(150)
         end
-        
-        -- Reset counter after 3 seconds
-        -- (In a real impl, you'd use a timer. Here we just note the limitation.)
-        -- For now, state persists so next press will trigger.
         
     else
         -- Second press: confirmed

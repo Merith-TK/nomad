@@ -261,8 +261,12 @@ func (r *ScriptRunner) StopBackground() {
 }
 
 // RunPassive calls passive(key, state) and returns appearance.
+// Uses TryLock to avoid blocking if background is running.
 func (r *ScriptRunner) RunPassive(keyIndex int) (*KeyAppearance, error) {
-	r.mu.Lock()
+	// Try to acquire lock - if background is holding it, skip this update
+	if !r.mu.TryLock() {
+		return nil, nil // Skip, try again next tick
+	}
 	defer r.mu.Unlock()
 
 	if !r.hasPassive {
