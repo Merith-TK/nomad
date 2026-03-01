@@ -240,6 +240,10 @@ func main() {
 				if err := scriptMgr.TriggerScript(item.Script); err != nil {
 					log.Printf("Script error: %v", err)
 				}
+				// Re-render page to restore icons (trigger may have drawn on screen)
+				if err := nav.RenderPage(); err != nil {
+					log.Printf("RenderPage failed: %v", err)
+				}
 			}
 		}
 	}

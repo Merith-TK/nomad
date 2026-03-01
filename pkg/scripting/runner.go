@@ -53,6 +53,12 @@ type ScriptRunner struct {
 	bgRestarts    int
 	restartPolicy RestartPolicy
 
+	// Background coroutine support
+	bgThread       *lua.LState // Coroutine for background function
+	bgThreadCancel context.CancelFunc
+	bgSleepUntil   time.Time      // When to resume from sleep
+	bgFunc         *lua.LFunction // Cached background function
+
 	// Device access
 	device    *streamdeck.Device
 	configDir string
@@ -180,11 +186,16 @@ func (r *ScriptRunner) StartBackground(parentCtx context.Context) {
 	go r.backgroundLoop()
 }
 
-// backgroundLoop runs the background function with restart logic.
+// backgroundLoop runs the background function as a coroutine with restart logic.
 func (r *ScriptRunner) backgroundLoop() {
 	defer func() {
 		r.mu.Lock()
 		r.bgRunning = false
+		if r.bgThreadCancel != nil {
+			r.bgThreadCancel()
+		}
+		r.bgThread = nil
+		r.bgFunc = nil
 		r.mu.Unlock()
 	}()
 
@@ -195,21 +206,19 @@ func (r *ScriptRunner) backgroundLoop() {
 		default:
 		}
 
-		// Call background(state) - should be quick, Go handles the loop
-		err := r.callBackground()
-
-		// Pause between calls - 500ms gives passive plenty of time to run
-		select {
-		case <-r.bgCtx.Done():
-			return
-		case <-time.After(500 * time.Millisecond):
-		}
+		// Run or resume background coroutine
+		finished, sleepMs, err := r.runBackgroundCoroutine()
 
 		if err != nil {
 			fmt.Printf("[!] Background error in %s: %v\n", r.ScriptName, err)
 
 			r.mu.Lock()
 			r.bgRestarts++
+			if r.bgThreadCancel != nil {
+				r.bgThreadCancel()
+			}
+			r.bgThread = nil // Reset coroutine on error
+			r.bgFunc = nil
 			policy := r.restartPolicy
 			restarts := r.bgRestarts
 			r.mu.Unlock()
@@ -235,11 +244,102 @@ func (r *ScriptRunner) backgroundLoop() {
 				return
 			case <-time.After(1 * time.Second):
 			}
+			continue
+		}
+
+		if finished {
+			// Coroutine finished normally, restart it
+			r.mu.Lock()
+			if r.bgThreadCancel != nil {
+				r.bgThreadCancel()
+			}
+			r.bgThread = nil
+			r.bgFunc = nil
+			r.mu.Unlock()
+
+			// Brief pause before restarting
+			select {
+			case <-r.bgCtx.Done():
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+			continue
+		}
+
+		// Coroutine yielded (sleep) - wait WITHOUT holding mutex
+		if sleepMs > 0 {
+			select {
+			case <-r.bgCtx.Done():
+				return
+			case <-time.After(time.Duration(sleepMs) * time.Millisecond):
+			}
+		} else {
+			// No sleep specified, brief yield to allow other operations
+			select {
+			case <-r.bgCtx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
 		}
 	}
 }
 
-// callBackground executes the background function.
+// runBackgroundCoroutine runs or resumes the background coroutine.
+// Returns: (finished bool, sleepMs int, err error)
+func (r *ScriptRunner) runBackgroundCoroutine() (bool, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Get background function
+	fn := r.L.GetGlobal("background")
+	if fn.Type() != lua.LTFunction {
+		return true, 0, nil
+	}
+	bgFn := fn.(*lua.LFunction)
+
+	// Create new coroutine if needed
+	if r.bgThread == nil {
+		r.bgThread, r.bgThreadCancel = r.L.NewThread()
+		r.bgFunc = bgFn
+	}
+
+	// Resume the coroutine
+	// First call: pass function and state argument
+	// Subsequent calls: pass nil function (already on stack)
+	var status lua.ResumeState
+	var err error
+	var values []lua.LValue
+
+	if r.bgFunc != nil {
+		// First resume - pass function and state
+		status, err, values = r.L.Resume(r.bgThread, r.bgFunc, r.state)
+		r.bgFunc = nil // Clear so subsequent resumes don't pass function again
+	} else {
+		// Subsequent resume - no function needed
+		status, err, values = r.L.Resume(r.bgThread, nil)
+	}
+
+	if err != nil {
+		return false, 0, err
+	}
+
+	if status == lua.ResumeOK {
+		// Coroutine finished
+		return true, 0, nil
+	}
+
+	// Coroutine yielded - check if sleep duration was passed
+	sleepMs := 0
+	if len(values) > 0 {
+		if n, ok := values[0].(lua.LNumber); ok {
+			sleepMs = int(n)
+		}
+	}
+
+	return false, sleepMs, nil
+}
+
+// callBackground executes the background function (legacy, used if no coroutine).
 func (r *ScriptRunner) callBackground() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

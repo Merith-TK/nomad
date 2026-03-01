@@ -1,51 +1,63 @@
 -- shutdown.lua - System shutdown with confirmation animation
--- Demonstrates: trigger-only script (no background/passive needed)
+-- Demonstrates: trigger with visual feedback, double-press confirmation
 --
 -- WARNING: Actual shutdown command commented out for safety
 
 local streamdeck = require("streamdeck")
 local system = require("system")
+local shell = require("shell")
 
--- No background worker needed for this script
--- No passive needed - uses default appearance
+-- Track confirmation state
+-- presses resets after 3 seconds (handled by timeout in state)
 
--- Trigger: flash red warning, then shutdown
-function trigger(state)
-    -- Count presses - require double-press to confirm
-    state.presses = (state.presses or 0) + 1
-    
-    if state.presses == 1 then
-        -- First press: flash warning
-        print("Shutdown: press again within 3 seconds to confirm")
-        
-        -- Flash keys red 2 times as warning
-        for i = 1, 2 do
-            local keys = streamdeck.get_keys()
-            for k = 0, keys - 1 do
-                streamdeck.set_color(k, 255, 0, 0)
-            end
-            system.sleep(150)
-            streamdeck.clear()
-            system.sleep(150)
-        end
-        
+-- Passive: show button state
+function passive(key, state)
+    if state.confirming then
+        -- Waiting for confirmation - show red warning
+        return {
+            color = {200, 0, 0},
+            text = "SURE?",
+            text_color = {255, 255, 255}
+        }
     else
-        -- Second press: confirmed
-        print("Shutdown confirmed!")
-        state.presses = 0
-        
-        -- Flash green to confirm
-        local keys = streamdeck.get_keys()
-        for k = 0, keys - 1 do
-            streamdeck.set_color(k, 0, 255, 0)
+        -- Normal state
+        return {
+            color = {100, 30, 30},
+            text = "OFF",
+            text_color = {200, 200, 200}
+        }
+    end
+end
+
+-- Background: reset confirmation after timeout
+function background(state)
+    while true do
+        if state.confirming then
+            -- Check if confirmation timed out (3 seconds)
+            local now = os.time()
+            if now - (state.confirm_time or 0) > 3 then
+                state.confirming = false
+                print("Shutdown: confirmation timed out")
+            end
         end
         system.sleep(500)
-        streamdeck.clear()
+    end
+end
+
+-- Trigger: handle double-press confirmation
+function trigger(state)
+    if state.confirming then
+        -- Second press within timeout - confirmed!
+        state.confirming = false
+        print("Shutdown confirmed!")
         
         -- Actual shutdown - UNCOMMENT TO ENABLE
-        -- local shell = require("shell")
         -- shell.exec("shutdown /s /t 60 /c \"Shutdown initiated from Stream Deck\"")
+        
+    else
+        -- First press - enter confirmation mode
+        state.confirming = true
+        state.confirm_time = os.time()
+        print("Shutdown: press again within 3 seconds to confirm")
     end
-    
-    system.refresh()
 end

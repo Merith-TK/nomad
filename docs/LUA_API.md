@@ -7,14 +7,13 @@ Scripts are placed in `.nomad/interface/streamdeck/config/` and organized into f
 Each `.lua` script can define up to three functions:
 
 ```lua
--- Called every ~500ms by Go runtime
--- Must return quickly - no while loops or blocking calls!
--- Use state to track timing for slower polling
+-- Runs as a coroutine - use while true with system.sleep()
+-- sleep() yields to Go, allowing passive/trigger to run
 function background(state)
-    state.count = (state.count or 0) + 1
-    if state.count < 4 then return end  -- Only run every 4th call (~2 seconds)
-    state.count = 0
-    -- Update state.something
+    while true do
+        -- Update state.something
+        system.sleep(1000)  -- Sleep 1 second (yields, doesn't block)
+    end
 end
 
 -- Called at 10fps when button is visible on screen
@@ -131,11 +130,17 @@ end
 ```
 
 #### `system.sleep(milliseconds)`
-Pause execution. **Warning: blocks all script functions during sleep.**
-Avoid using in background() - use state-based timing instead.
+Pause execution. **In background(), this yields to Go** - passive/trigger can run during sleep.
+In trigger/passive, sleep is capped at 100ms to avoid blocking.
 
 ```lua
-system.sleep(100)  -- Sleep 100ms (use sparingly)
+-- In background(), sleep yields and resumes after duration
+function background(state)
+    while true do
+        -- do work
+        system.sleep(2000)  -- Yields for 2 seconds
+    end
+end
 ```
 
 #### `system.refresh()`
@@ -287,16 +292,15 @@ end
 local shell = require("shell")
 local system = require("system")
 
--- Background: called every 500ms, use state for slower polling
+-- Background: coroutine with sleep
 function background(state)
-    state.poll = (state.poll or 0) + 1
-    if state.poll < 4 then return end  -- Every ~2 seconds
-    state.poll = 0
-    
-    if system.os() == "windows" then
-        local out = shell.exec('wmic cpu get loadpercentage /value')
-        local load = out:match("LoadPercentage=(%d+)")
-        state.cpu = tonumber(load) or 0
+    while true do
+        if system.os() == "windows" then
+            local out = shell.exec('wmic cpu get loadpercentage /value')
+            local load = out:match("LoadPercentage=(%d+)")
+            state.cpu = tonumber(load) or 0
+        end
+        system.sleep(1000)  -- Update every second
     end
 end
 
@@ -365,10 +369,9 @@ end
 
 ## Tips
 
-1. **Background must return quickly** - Go calls it every 500ms, no while loops!
-2. **Use state-based timing** - track call counts in state for slower polling
-3. **Use `shell.terminal()` for interactive apps** - `shell.exec()` blocks
-4. **State persists** - use it to communicate between functions
-5. **Passive is called frequently** - keep it fast, no I/O
-6. **Trigger can block briefly** - but keep it reasonable
-7. **Restart policy** - controls what happens if background crashes
+1. **Use `while true` + `system.sleep()` in background** - sleep yields to Go, doesn't block
+2. **Use `shell.terminal()` for interactive apps** - `shell.exec()` blocks
+3. **State persists** - use it to communicate between functions
+4. **Passive is called frequently** - keep it fast, no I/O
+5. **Trigger can block briefly** - but keep it reasonable
+6. **Restart policy** - controls what happens if background crashes

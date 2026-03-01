@@ -1,5 +1,5 @@
 -- nano.lua - Opens nano on Windows
--- Demonstrates: background polling, passive display, trigger action
+-- Demonstrates: background polling with coroutine, passive display, trigger action
 --
 -- Available modules: shell, http, system, streamdeck
 -- Available globals: state (shared table), SCRIPT_NAME, SCRIPT_PATH, CONFIG_DIR
@@ -10,14 +10,17 @@ local system = require("system")
 -- Restart policy: "always" (default), "never", or "once"
 RESTART_POLICY = "always"
 
--- Background worker: called every ~500ms by Go runtime
--- Must return quickly - no while loops or long sleeps!
+-- Background worker: runs as a coroutine
+-- Use while true with system.sleep() - sleep yields to let passive/trigger run
 function background(state)
-    if system.os() == "windows" then
-        local out, _, code = shell.exec("tasklist /FI \"IMAGENAME eq nano.exe\" /NH 2>nul")
-        state.running = (code == 0 and out:find("nano.exe") ~= nil)
-    else
-        state.running = false
+    while true do
+        if system.os() == "windows" then
+            local out, _, code = shell.exec("tasklist /FI \"IMAGENAME eq nano.exe\" /NH 2>nul")
+            state.running = (code == 0 and out:find("nano.exe") ~= nil)
+        else
+            state.running = false
+        end
+        system.sleep(2000)  -- Check every 2 seconds
     end
 end
 

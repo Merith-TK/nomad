@@ -296,6 +296,23 @@ func (r *ScriptRunner) systemEnv(L *lua.LState) int {
 
 func (r *ScriptRunner) systemSleep(L *lua.LState) int {
 	ms := L.CheckInt(1)
+
+	// Check if we're in a coroutine (background thread)
+	// If so, yield to let Go handle the sleep without blocking
+	// Note: Don't use mutex here - we may already be holding it from runBackgroundCoroutine
+	// Direct pointer compare is safe since bgThread is only set while holding mutex
+	isCoroutine := r.bgThread != nil && L == r.bgThread
+
+	if isCoroutine {
+		// Yield with sleep duration - Go will wait and resume
+		return L.Yield(lua.LNumber(ms))
+	}
+
+	// Not in coroutine (trigger/passive) - do a brief sleep
+	// Keep it short to avoid blocking
+	if ms > 100 {
+		ms = 100 // Cap at 100ms for non-coroutine calls
+	}
 	time.Sleep(time.Duration(ms) * time.Millisecond)
 	return 0
 }
