@@ -367,8 +367,36 @@ func (n *Navigator) SetToggleState(keyIndex int, state bool) {
 	n.toggleStates[keyIndex] = state
 }
 
+// GetVisibleScripts returns a map of script paths to key indices for visible scripts.
+func (n *Navigator) GetVisibleScripts() map[string]int {
+	result := make(map[string]int)
+
+	page, err := n.LoadPage()
+	if err != nil {
+		return result
+	}
+
+	for i, item := range page.Items {
+		if i >= len(n.contentKeys) {
+			break
+		}
+		if !item.IsFolder && item.Script != "" {
+			keyIndex := n.contentKeys[i]
+			result[item.Script] = keyIndex
+		}
+	}
+
+	return result
+}
+
 // createTextImage creates a simple image with text.
 func (n *Navigator) createTextImage(text string, bgColor color.Color) image.Image {
+	return n.CreateTextImageWithColors(text, bgColor, color.White)
+}
+
+// CreateTextImageWithColors creates an image with text and custom colors.
+// This is exported for use by script passive updates.
+func (n *Navigator) CreateTextImageWithColors(text string, bgColor, textColor color.Color) image.Image {
 	size := n.dev.PixelSize()
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
 
@@ -378,7 +406,7 @@ func (n *Navigator) createTextImage(text string, bgColor color.Color) image.Imag
 	// Draw text centered
 	d := &font.Drawer{
 		Dst:  img,
-		Src:  image.NewUniform(color.White),
+		Src:  image.NewUniform(textColor),
 		Face: basicfont.Face7x13,
 	}
 

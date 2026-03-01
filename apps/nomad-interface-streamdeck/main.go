@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 
+	"github.com/merith-tk/nomad/pkg/scripting"
 	"github.com/merith-tk/nomad/pkg/streamdeck"
 )
 
@@ -81,8 +83,60 @@ func main() {
 
 	fmt.Printf("\n[*] Config directory: %s\n", absConfigPath)
 
+	// Create script manager and boot (loads scripts, starts background workers)
+	fmt.Println("[*] Booting script manager...")
+	scriptMgr := scripting.NewScriptManager(dev, absConfigPath)
+
+	// Create a context for the entire application
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Boot scripts (shows loading indicator, loads all scripts)
+	if err := scriptMgr.Boot(ctx); err != nil {
+		log.Printf("Warning: Script boot error: %v", err)
+	}
+	defer scriptMgr.Shutdown()
+
 	// Create navigator
 	nav := streamdeck.NewNavigator(dev, absConfigPath)
+
+	// Set up passive key updates from scripts
+	scriptMgr.SetKeyUpdateCallback(func(keyIndex int, appearance *scripting.KeyAppearance) {
+		if appearance == nil {
+			return
+		}
+		// Apply appearance to key
+		c := color.RGBA{
+			R: uint8(appearance.Color[0]),
+			G: uint8(appearance.Color[1]),
+			B: uint8(appearance.Color[2]),
+			A: 255,
+		}
+		if appearance.Text != "" {
+			// Create text image with appearance colors
+			img := nav.CreateTextImageWithColors(
+				appearance.Text,
+				c,
+				color.RGBA{
+					R: uint8(appearance.TextColor[0]),
+					G: uint8(appearance.TextColor[1]),
+					B: uint8(appearance.TextColor[2]),
+					A: 255,
+				},
+			)
+			dev.SetImage(keyIndex, img)
+		} else {
+			dev.SetKeyColor(keyIndex, c)
+		}
+	})
+
+	// Start the passive update loop (15fps)
+	scriptMgr.StartPassiveLoop()
+
+	// Helper to update visible scripts
+	updateVisibleScripts := func() {
+		scriptMgr.SetVisibleScripts(nav.GetVisibleScripts())
+	}
 
 	// Render initial page
 	fmt.Println("[*] Loading page...")
@@ -102,9 +156,8 @@ func main() {
 	fmt.Println("    - Columns 1-4: Folder/action buttons")
 	fmt.Println("    - Press '<-' to go back\n")
 
-	// Listen for key presses
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Update visible scripts for initial page
+	updateVisibleScripts()
 
 	// Handle Ctrl+C
 	sigChan := make(chan os.Signal, 1)
@@ -151,6 +204,9 @@ func main() {
 				log.Printf("RenderPage failed: %v", err)
 			}
 
+			// Update visible scripts for passive updates
+			updateVisibleScripts()
+
 			page, _ := nav.LoadPage()
 			if page != nil {
 				relPath, _ := filepath.Rel(absConfigPath, page.Path)
@@ -166,7 +222,9 @@ func main() {
 			fmt.Printf("[*] Action triggered: %s\n", item.Name)
 			if item.Script != "" {
 				fmt.Printf("    Script: %s\n", item.Script)
-				// TODO: Execute Lua script
+				if err := scriptMgr.TriggerScript(item.Script); err != nil {
+					log.Printf("Script error: %v", err)
+				}
 			}
 		}
 	}
