@@ -1,5 +1,5 @@
 /*
- * Nomad Core - Brain Mount Bracket
+ * Nomad Core - Module Mount Bracket
  * Mounting bracket for compute module (Raspberry Pi or compatible)
  * 
  * Single wedge-shaped bracket with M2.5 screw holes for secure mounting
@@ -12,9 +12,9 @@
 use <parts/screw_cutout.scad>
 
 // ============================================
-// BRAIN MOUNT CONFIGURATION
+// MODULE MOUNT CONFIGURATION
 // ============================================
-// All brain mount settings consolidated here for easy adjustment:
+// All module mount settings consolidated here for easy adjustment:
 // - Wedge dimensions
 // - Screw hole positions (matching Pi 3B+ pattern)
 // - Component positioning
@@ -85,9 +85,9 @@ module wedge1_with_holes() {
 }
 
 // ============================================
-// COMPLETE BRAIN MOUNT ASSEMBLY
+// COMPLETE MODULE MOUNT ASSEMBLY
 // ============================================
-module brain_mount() {
+module module_mount() {
     union() {
         // Wedge 1 (long wedge with screw holes)
         wedge1_with_holes();
@@ -97,4 +97,4 @@ module brain_mount() {
 // ============================================
 // MAIN RENDER
 // ============================================
-brain_mount();
+module_mount();

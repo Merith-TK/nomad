@@ -18,7 +18,7 @@ The entire system mounts to an arm band via a quick-release puck mechanism, maki
 ## Design Philosophy
 
 > **Core Principle: Modularity**  
-> The only fixed standards in NOMAD are the **armband mount**, **M2.5 screws**, and **33×33mm puck interface**. Everything else is designed to be customized and modified to your needs. Want to use a different SBC? Model your own brain mount. Need a bigger battery? Design a custom power module. The baseplate and puck system provide the foundation for whatever you want to build.
+> The only fixed standards in NOMAD are the **armband mount**, **M2.5 screws**, and **33×33mm puck interface**. Everything else is designed to be customized and modified to your needs. Want to use a different SBC? Model your own module mount. Need a bigger battery? Design a custom power module. The baseplate and puck system provide the foundation for whatever you want to build.
 
 - **Modular** - Swap out individual modules without rebuilding the whole system
 - **Ergonomic** - Worn comfortably on the forearm, no wrist rotation needed
@@ -32,7 +32,7 @@ OpenSCAD parametric designs for all 3D-printed components:
 - `00_assembly_complete.scad` - Full system assembly view
 - `puck_design.scad` - Quick-release mounting interface
 - `baseplate_initial.scad` - Raspberry Pi mounting plate
-- `brain_mount.scad` - Compute module bracket
+- `module_mount.scad` - Compute module bracket
 - `parts/` - Reusable modules (screw cutouts, support columns)
 - `archive/` - Previous design iterations
 
@@ -71,7 +71,7 @@ OpenSCAD parametric designs for all 3D-printed components:
    ```bash
    openscad -o puck.stl cad/puck_design.scad
    openscad -o baseplate.stl cad/baseplate_initial.scad
-   openscad -o brain_mount.stl cad/brain_mount.scad
+   openscad -o module_mount.stl cad/module_mount.scad
    ```
 
 4. **Print and assemble**
@@ -140,7 +140,7 @@ Pick based on your connectivity needs:
 ✅ **Completed:**
 - Puck mounting system (fit verified)
 - Baseplate for Raspberry Pi 3B+ (test platform)
-- Brain mount bracket with screw holes
+- Module mount bracket with screw holes
 - Modular assembly system with adjustable positioning
 
 🚧 **In Progress:**

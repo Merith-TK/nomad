@@ -11,7 +11,7 @@
 // ============================================
 use <puck_design.scad>
 use <baseplate_initial.scad>
-use <brain_mount_slim.scad>
+use <module_mount_slim.scad>
 
 // ============================================
 // ASSEMBLY CONFIGURATION
@@ -28,7 +28,7 @@ use <brain_mount_slim.scad>
 // ============================================
 show_puck = true;          // Toggle puck visibility
 show_baseplate = true;     // Toggle baseplate visibility
-show_brain_mount = true;   // Toggle brain mount visibility
+show_module_mount = true;   // Toggle module mount visibility
 
 // ============================================
 // VIEW CONFIGURATION
@@ -45,8 +45,11 @@ puck_pos = [0, 0, 0];  // [X, Y, Z] (mm)
 // Baseplate position (sits on top of puck)
 baseplate_pos = [0, 0, 3.5];  // [X, Y, Z] - Z=3.5 is puck height (mm)
 
-// Brain mount position (left side of baseplate)
-brain_mount_pos = [35, 42.5, 14.9];  // [X, Y, Z] (mm)
+// Module mount position (left side of baseplate)
+module_mount_left_pos = [35, 42.5, 14.9];  // [X, Y, Z] (mm)
+
+// Opposite module mount position (right side of baseplate)
+module_mount_right_pos = [-35, -27.5, 14.9];  // [X, Y, Z] (mm)
 
 // ============================================
 // COMPONENT ROTATIONS
@@ -57,8 +60,11 @@ puck_rot = [0, 0, 0];  // [X, Y, Z] rotation in degrees
 // Baseplate rotation
 baseplate_rot = [0, 0, 0];  // [X, Y, Z] rotation in degrees
 
-// Brain mount rotation (60° slant for ergonomics)
-brain_mount_rot = [60, 180, -90];  // [X, Y, Z] rotation in degrees
+// Module mount rotation (60° slant for ergonomics)
+module_mount_rot = [60, 180, -90];  // [X, Y, Z] rotation in degrees
+
+// Opposite module mount rotation (mirrored side)
+module_mount_opposite_rot = [60, 180, 90];  // [X, Y, Z] rotation in degrees
 
 // ============================================
 // MERGE PIECES CONFIGURATION
@@ -68,12 +74,19 @@ brain_mount_rot = [60, 180, -90];  // [X, Y, Z] rotation in degrees
 // Available shapes: "cuboid", "wedge"
 
 merge_pieces = [
-    // Brain mount to baseplate bridge
+    // Left module mount to baseplate bridge
     [
         "cuboid",
         [5.5, 70, 4],           // Dimensions [W, L, H] (mm)
         [29.1, -27.5, 10.5],   // Position [X, Y, Z] (mm)
         [0, 0, 0]             // Rotation [X, Y, Z] (degrees)
+    ],
+    // Right module mount to baseplate bridge
+    [
+        "cuboid",
+        [5.5, 70, 4],            // Dimensions [W, L, H] (mm)
+        [-34.6, -27.5, 10.5],    // Position [X, Y, Z] (mm)
+        [0, 0, 0]                // Rotation [X, Y, Z] (degrees)
     ]
 ];
 
@@ -135,14 +148,25 @@ if (show_baseplate) {
                 baseplate_initial();
 }
 
-// Brain mount (left side of baseplate)
-if (show_brain_mount) {
-    brain_mount_offset = show_exploded ? explode_distance : 0;
+// Module mounts (both sides of baseplate)
+if (show_module_mount) {
+    module_mount_offset = show_exploded ? explode_distance : 0;
     
-    translate([brain_mount_pos[0], brain_mount_pos[1], brain_mount_pos[2] + brain_mount_offset])
-        rotate(brain_mount_rot)
+    // Left module mount
+    translate([module_mount_left_pos[0], module_mount_left_pos[1], module_mount_left_pos[2] + module_mount_offset])
+        rotate(module_mount_rot)
             color("LimeGreen")
-                brain_mount();
+                module_mount();
+
+    // Right module mount (opposite side)
+    translate([
+        module_mount_right_pos[0],
+        module_mount_right_pos[1],
+        module_mount_right_pos[2] + module_mount_offset
+    ])
+        rotate(module_mount_opposite_rot)
+            color("LimeGreen")
+                module_mount();
 }
 
 // Merge pieces (bridge components together)

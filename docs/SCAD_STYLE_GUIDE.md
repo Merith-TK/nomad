@@ -73,7 +73,7 @@ module puck_body_with_selective_rounds() { }
 
 ### Files
 - **Format**: `snake_case.scad`
-- **Descriptive names**: `brain_mount.scad` not `mount.scad`
+- **Descriptive names**: `module_mount.scad` not `mount.scad`
 - **Assembly files**: Prefix with number for ordering: `00_assembly_complete.scad`
 - **Archive files**: Keep version in name: `puck_v2.1.scad`
 
@@ -125,9 +125,9 @@ wedge1_pos_z = 0;
 
 ```scad
 // ============================================
-// BRAIN MOUNT CONFIGURATION
+// MODULE MOUNT CONFIGURATION
 // ============================================
-// All brain mount settings consolidated here for easy adjustment:
+// All module mount settings consolidated here for easy adjustment:
 // - Wedge dimensions (2 wedges with different sizes)
 // - Screw hole positions (matching Pi 3B+ pattern)
 // - Component positioning
@@ -306,7 +306,7 @@ module screw_cutout() {
     // Reusable across multiple components
 }
 
-// In cad/brain_mount.scad
+// In cad/module_mount.scad
 use <parts/screw_cutout.scad>
 ```
 
