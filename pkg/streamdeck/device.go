@@ -1,15 +1,33 @@
+// Package streamdeck provides a Go library for interfacing with Elgato Stream Deck devices.
+//
+// This package offers low-level control over Stream Deck hardware, including:
+// - Device discovery and enumeration
+// - Image display and key color control
+// - Key event monitoring and handling
+// - Firmware information retrieval
+// - Model-specific feature support
+//
+// Key components:
+// - Device: Main interface for Stream Deck operations
+// - Model: Device model specifications and capabilities
+// - KeyEvent: Key press/release event structure
+// - Navigator: High-level folder-based navigation (separate package)
+//
+// Contributors can extend functionality by:
+// - Adding support for new device models in models.go
+// - Implementing additional image formats
+// - Adding device-specific features
+// - Creating higher-level abstractions
 package streamdeck
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/jpeg"
 	"sync"
-	"time"
 
 	"github.com/sstallion/go-hid"
 )
@@ -303,186 +321,50 @@ func (d *Device) SetKeyColor(keyIndex int, c color.Color) error {
 	return d.SetImage(keyIndex, img)
 }
 
-// ReadKeys reads the current state of all keys.
-// Returns a slice of booleans where true means the key is pressed.
-func (d *Device) ReadKeys() ([]bool, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Read buffer size depends on device, use generous buffer
-	buf := make([]byte, 512)
-	n, err := d.hid.ReadWithTimeout(buf, 100*time.Millisecond)
-	if err != nil {
-		return nil, fmt.Errorf("read keys: %w", err)
-	}
-	if n == 0 {
-		// No data available, return current state as all unpressed
-		return make([]bool, d.Model.Keys), nil
+// ResizeImage scales an image to fit the device's key size.
+// Maintains aspect ratio and centers the image.
+func (d *Device) ResizeImage(src image.Image) image.Image {
+	size := d.Model.PixelSize
+	if size == 0 {
+		return src
 	}
 
-	// Parse key states - format depends on device generation
-	// For MK.2/V2: first byte is report ID (0x01), then key states starting at offset 4
-	keys := make([]bool, d.Model.Keys)
-	keyOffset := 4 // MK.2/V2 offset
-	for i := 0; i < d.Model.Keys && keyOffset+i < n; i++ {
-		keys[i] = buf[keyOffset+i] != 0
+	srcBounds := src.Bounds()
+	srcW := srcBounds.Dx()
+	srcH := srcBounds.Dy()
+
+	// If already correct size, return as-is
+	if srcW == size && srcH == size {
+		return src
 	}
 
-	return keys, nil
-}
+	// Create destination image
+	dst := image.NewRGBA(image.Rect(0, 0, size, size))
 
-// WaitForKeyPress blocks until a key is pressed or the context is cancelled.
-// Returns the index of the pressed key.
-func (d *Device) WaitForKeyPress(ctx context.Context) (int, error) {
-	prevState := make([]bool, d.Model.Keys)
+	// Calculate scale to fit while maintaining aspect ratio
+	scaleX := float64(size) / float64(srcW)
+	scaleY := float64(size) / float64(srcH)
+	scale := scaleX
+	if scaleY < scaleX {
+		scale = scaleY
+	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return -1, ctx.Err()
-		default:
+	newW := int(float64(srcW) * scale)
+	newH := int(float64(srcH) * scale)
+
+	// Center offset
+	offsetX := (size - newW) / 2
+	offsetY := (size - newH) / 2
+
+	// Use nearest-neighbor for speed (called at 10fps)
+	// Scale manually
+	for y := 0; y < newH; y++ {
+		srcY := srcBounds.Min.Y + int(float64(y)/scale)
+		for x := 0; x < newW; x++ {
+			srcX := srcBounds.Min.X + int(float64(x)/scale)
+			dst.Set(offsetX+x, offsetY+y, src.At(srcX, srcY))
 		}
-
-		keys, err := d.ReadKeys()
-		if err != nil {
-			return -1, err
-		}
-
-		// Check for newly pressed keys
-		for i, pressed := range keys {
-			if pressed && !prevState[i] {
-				return i, nil
-			}
-		}
-
-		copy(prevState, keys)
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-// ListenKeys starts listening for key events and sends them to the provided channel.
-// Closes the channel when context is cancelled.
-func (d *Device) ListenKeys(ctx context.Context, events chan<- KeyEvent) {
-	go func() {
-		defer close(events)
-		prevState := make([]bool, d.Model.Keys)
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			keys, err := d.ReadKeys()
-			if err != nil {
-				continue
-			}
-
-			// Detect state changes
-			for i, pressed := range keys {
-				if pressed != prevState[i] {
-					select {
-					case events <- KeyEvent{Key: i, Pressed: pressed}:
-					case <-ctx.Done():
-						return
-					}
-				}
-			}
-
-			copy(prevState, keys)
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
-}
-
-// KeyToCoord converts a key index to (col, row) coordinates.
-func (d *Device) KeyToCoord(keyIndex int) (col, row int) {
-	if d.Model.Cols == 0 {
-		return 0, 0
-	}
-	return keyIndex % d.Model.Cols, keyIndex / d.Model.Cols
-}
-
-// CoordToKey converts (col, row) coordinates to a key index.
-func (d *Device) CoordToKey(col, row int) int {
-	return row*d.Model.Cols + col
-}
-
-// Cols returns the number of columns on the device.
-func (d *Device) Cols() int {
-	return d.Model.Cols
-}
-
-// Rows returns the number of rows on the device.
-func (d *Device) Rows() int {
-	return d.Model.Rows
-}
-
-// Keys returns the total number of keys on the device.
-func (d *Device) Keys() int {
-	return d.Model.Keys
-}
-
-// PixelSize returns the pixel dimensions for key images.
-func (d *Device) PixelSize() int {
-	return d.Model.PixelSize
-}
-
-// encodeBMP encodes an image to BMP format for older Stream Deck devices.
-func encodeBMP(w *bytes.Buffer, img image.Image) error {
-	bounds := img.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
-
-	// BMP row size must be aligned to 4 bytes
-	rowSize := ((width*3 + 3) / 4) * 4
-	imageSize := rowSize * height
-	fileSize := 54 + imageSize // 54 = header size
-
-	// BMP File Header (14 bytes)
-	w.Write([]byte{'B', 'M'})      // Magic number
-	writeLE32(w, uint32(fileSize)) // File size
-	writeLE16(w, 0)                // Reserved
-	writeLE16(w, 0)                // Reserved
-	writeLE32(w, 54)               // Offset to pixel data
-
-	// DIB Header (40 bytes - BITMAPINFOHEADER)
-	writeLE32(w, 40)                // Header size
-	writeLE32(w, uint32(width))     // Width
-	writeLE32(w, uint32(height))    // Height (positive = bottom-up)
-	writeLE16(w, 1)                 // Color planes
-	writeLE16(w, 24)                // Bits per pixel
-	writeLE32(w, 0)                 // Compression (none)
-	writeLE32(w, uint32(imageSize)) // Image size
-	writeLE32(w, 2835)              // Horizontal resolution (72 DPI)
-	writeLE32(w, 2835)              // Vertical resolution (72 DPI)
-	writeLE32(w, 0)                 // Colors in palette
-	writeLE32(w, 0)                 // Important colors
-
-	// Pixel data (bottom-up, BGR format)
-	row := make([]byte, rowSize)
-	for y := height - 1; y >= 0; y-- {
-		for x := 0; x < width; x++ {
-			r, g, b, _ := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-			row[x*3+0] = byte(b >> 8) // B
-			row[x*3+1] = byte(g >> 8) // G
-			row[x*3+2] = byte(r >> 8) // R
-		}
-		w.Write(row)
 	}
 
-	return nil
-}
-
-func writeLE16(w *bytes.Buffer, v uint16) {
-	w.WriteByte(byte(v))
-	w.WriteByte(byte(v >> 8))
-}
-
-func writeLE32(w *bytes.Buffer, v uint32) {
-	w.WriteByte(byte(v))
-	w.WriteByte(byte(v >> 8))
-	w.WriteByte(byte(v >> 16))
-	w.WriteByte(byte(v >> 24))
+	return dst
 }

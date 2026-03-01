@@ -61,3 +61,7 @@ docs/_build/
 # Golang Output Files
 *.exe
 *.dll
+
+# air
+.air.toml
+tmp/
