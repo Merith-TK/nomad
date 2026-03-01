@@ -1,3 +1,4 @@
+// This file is part of the lualib package. See utils.go for the package doc.
 package lualib
 
 import (

@@ -1,3 +1,35 @@
+// Package scripting provides Lua script execution and lifecycle management
+// for the NOMAD Stream Deck interface.
+//
+// # Script Architecture
+//
+// Every Lua script must return a table ("module") containing any combination
+// of three optional functions:
+//
+//	local script = {}
+//
+//	-- Runs as a coroutine. Use system.sleep() to yield.
+//	function script.background(state) ... end
+//
+//	-- Called at the passive FPS rate while the key is visible.
+//	function script.passive(key, state) ... end
+//
+//	-- Called when the key is pressed.
+//	function script.trigger(state) ... end
+//
+//	return script
+//
+// # State
+//
+// The `state` table is created once per script and passed to all three
+// functions. Use it to share data across calls (e.g. cached values,
+// counters, flags).
+//
+// # Background Workers
+//
+// background() runs as a gopher-lua coroutine. Call system.sleep(ms) to yield
+// back to Go so that passive() and trigger() can execute. The restart policy
+// (RESTART_POLICY global) controls behaviour on error or normal exit.
 package scripting
 
 import (

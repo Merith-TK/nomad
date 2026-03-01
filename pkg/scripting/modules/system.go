@@ -1,3 +1,24 @@
+// Package modules provides Lua module loaders for the NOMAD scripting system.
+//
+// Each module is registered as a preloaded Lua module and accessed inside
+// scripts with require(). Modules are bound to runtime context (device,
+// config directory, refresh callback) at script load time.
+//
+// Available modules:
+//
+//	shell      - execute shell commands, open files/URLs, launch terminals
+//	http       - HTTP GET / POST / custom requests
+//	system     - OS detection, environment, sleep (yield), refresh
+//	streamdeck - direct hardware control (brightness, key colour, layout)
+//	file       - read/write files within the config directory
+//
+// The lualib package provides additional pure-Go stdlib replacements:
+//
+//	utils      - table utilities (deepcopy, contains, merge)
+//	strings    - string utilities (split, trim, case conversion, …)
+//	json       - JSON encode / decode
+//	time       - Unix timestamps, date decomposition, blocking sleep
+//	log        - levelled logging (info, warn, error, debug)
 package modules
 
 import (
