@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -194,14 +195,14 @@ func (r *ScriptRunner) backgroundLoop() {
 		default:
 		}
 
-		// Call background(state)
+		// Call background(state) - should be quick, Go handles the loop
 		err := r.callBackground()
 
-		// Always pause between calls to allow other operations (trigger, passive)
+		// Pause between calls - 500ms gives passive plenty of time to run
 		select {
 		case <-r.bgCtx.Done():
 			return
-		case <-time.After(1 * time.Second):
+		case <-time.After(500 * time.Millisecond):
 		}
 
 		if err != nil {
@@ -332,9 +333,19 @@ func (r *ScriptRunner) RunPassive(keyIndex int) (*KeyAppearance, error) {
 		appearance.TextColor = [3]int{255, 255, 255}
 	}
 
-	// Parse image path (for future use)
+	// Parse image path - resolve relative to script directory
 	if imgVal := r.L.GetField(tbl, "image"); imgVal.Type() == lua.LTString {
-		appearance.Image = imgVal.String()
+		imgPath := imgVal.String()
+		// If it's a URL, keep as-is
+		if strings.HasPrefix(imgPath, "http://") || strings.HasPrefix(imgPath, "https://") {
+			appearance.Image = imgPath
+		} else if !filepath.IsAbs(imgPath) {
+			// Relative path - resolve relative to script's directory
+			scriptDir := filepath.Dir(r.ScriptPath)
+			appearance.Image = filepath.Join(scriptDir, imgPath)
+		} else {
+			appearance.Image = imgPath
+		}
 	}
 
 	return appearance, nil

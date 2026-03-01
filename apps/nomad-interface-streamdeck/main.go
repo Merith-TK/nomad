@@ -105,6 +105,20 @@ func main() {
 		if appearance == nil {
 			return
 		}
+
+		// Check for custom image first
+		if appearance.Image != "" {
+			img, err := scripting.LoadImage(appearance.Image)
+			if err == nil {
+				// Resize to fit key and display
+				resized := dev.ResizeImage(img)
+				dev.SetImage(keyIndex, resized)
+				return
+			}
+			// Fall through to color/text if image load fails
+			log.Printf("Image load failed: %v", err)
+		}
+
 		// Apply appearance to key
 		c := color.RGBA{
 			R: uint8(appearance.Color[0]),
@@ -140,6 +154,7 @@ func main() {
 
 	// Render initial page
 	fmt.Println("[*] Loading page...")
+	scriptMgr.SetVisibleScripts(nil) // Clear before render
 	if err := nav.RenderPage(); err != nil {
 		log.Printf("Warning: RenderPage failed: %v", err)
 	}
@@ -196,6 +211,9 @@ func main() {
 		}
 
 		if navigated {
+			// Clear visible scripts BEFORE render to prevent race condition
+			scriptMgr.SetVisibleScripts(nil)
+
 			// Page changed, re-render
 			if err := nav.RenderPage(); err != nil {
 				log.Printf("RenderPage failed: %v", err)

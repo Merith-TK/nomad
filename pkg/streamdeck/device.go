@@ -429,6 +429,54 @@ func (d *Device) PixelSize() int {
 	return d.Model.PixelSize
 }
 
+// ResizeImage scales an image to fit the device's key size.
+// Maintains aspect ratio and centers the image.
+func (d *Device) ResizeImage(src image.Image) image.Image {
+	size := d.Model.PixelSize
+	if size == 0 {
+		return src
+	}
+
+	srcBounds := src.Bounds()
+	srcW := srcBounds.Dx()
+	srcH := srcBounds.Dy()
+
+	// If already correct size, return as-is
+	if srcW == size && srcH == size {
+		return src
+	}
+
+	// Create destination image
+	dst := image.NewRGBA(image.Rect(0, 0, size, size))
+
+	// Calculate scale to fit while maintaining aspect ratio
+	scaleX := float64(size) / float64(srcW)
+	scaleY := float64(size) / float64(srcH)
+	scale := scaleX
+	if scaleY < scaleX {
+		scale = scaleY
+	}
+
+	newW := int(float64(srcW) * scale)
+	newH := int(float64(srcH) * scale)
+
+	// Center offset
+	offsetX := (size - newW) / 2
+	offsetY := (size - newH) / 2
+
+	// Use nearest-neighbor for speed (called at 10fps)
+	// Scale manually
+	for y := 0; y < newH; y++ {
+		srcY := srcBounds.Min.Y + int(float64(y)/scale)
+		for x := 0; x < newW; x++ {
+			srcX := srcBounds.Min.X + int(float64(x)/scale)
+			dst.Set(offsetX+x, offsetY+y, src.At(srcX, srcY))
+		}
+	}
+
+	return dst
+}
+
 // encodeBMP encodes an image to BMP format for older Stream Deck devices.
 func encodeBMP(w *bytes.Buffer, img image.Image) error {
 	bounds := img.Bounds()

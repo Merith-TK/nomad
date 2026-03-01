@@ -10,9 +10,8 @@ local system = require("system")
 -- Restart policy: "always" (default), "never", or "once"
 RESTART_POLICY = "always"
 
--- Background worker: called repeatedly by Go runtime (~1 second intervals)
--- Just do ONE check per call - the Go loop handles the timing
--- DO NOT use while true or sleep here - it blocks other script functions!
+-- Background worker: called every ~500ms by Go runtime
+-- Must return quickly - no while loops or long sleeps!
 function background(state)
     if system.os() == "windows" then
         local out, _, code = shell.exec("tasklist /FI \"IMAGENAME eq nano.exe\" /NH 2>nul")
@@ -20,7 +19,6 @@ function background(state)
     else
         state.running = false
     end
-    -- Returns immediately - Go handles timing between calls
 end
 
 -- Passive: customize icon appearance based on state
