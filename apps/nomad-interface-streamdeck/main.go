@@ -1,140 +1,121 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"fmt"
-	"image"
 	"image/color"
-	"image/jpeg"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/sstallion/go-hid"
-)
-
-const (
-	vendorID  = 0x0fd9 // Elgato
-	productID = 0x0080 // Stream Deck MK.2
-	pixels    = 72
-	cols      = 5
-	rows      = 3
+	"github.com/merith-tk/nomad/pkg/streamdeck"
 )
 
 func main() {
-	// Initialize HID library
-	if err := hid.Init(); err != nil {
-		log.Fatal("Failed to init HID:", err)
+	// Initialize the streamdeck library
+	if err := streamdeck.Init(); err != nil {
+		log.Fatal("Failed to init streamdeck:", err)
 	}
-	defer hid.Exit()
+	defer streamdeck.Exit()
 
-	// Open the Stream Deck MK.2
-	dev, err := hid.OpenFirst(vendorID, productID)
+	// Probe for all Stream Deck devices
+	fmt.Println("\n[*] Scanning for Stream Deck devices...\n")
+
+	devices, err := streamdeck.Enumerate()
 	if err != nil {
-		log.Fatal("Failed to open Stream Deck MK.2:", err)
+		log.Fatal("Failed to enumerate devices:", err)
+	}
+
+	if len(devices) == 0 {
+		fmt.Println("No Stream Deck devices found.")
+		return
+	}
+
+	fmt.Printf("Found %d Stream Deck device(s):\n\n", len(devices))
+
+	for i, info := range devices {
+		fmt.Printf("Device #%d:\n", i+1)
+		streamdeck.PrintDeviceInfo(info)
+		fmt.Println()
+	}
+
+	// Demo: Use the first device
+	info := devices[0]
+	if info.Model.PixelSize == 0 {
+		fmt.Println("First device has no display (e.g., Pedal). Skipping image test.")
+		return
+	}
+
+	fmt.Printf("Opening %s for demo...\n", info.Model.Name)
+
+	dev, err := streamdeck.Open(info.Path)
+	if err != nil {
+		log.Fatal("Failed to open device:", err)
 	}
 	defer dev.Close()
 
-	fmt.Println("Stream Deck MK.2 opened successfully!")
-
-	// Get device info
-	manufacturer, _ := dev.GetMfrStr()
-	product, _ := dev.GetProductStr()
-	serial, _ := dev.GetSerialNbr()
-	fmt.Printf("Device: %s %s (Serial: %s)\n", manufacturer, product, serial)
-
-	// Test: Set brightness to 75%
-	fmt.Println("Setting brightness...")
-	err = setBrightness(dev, 75)
-	if err != nil {
+	// Set brightness
+	if err := dev.SetBrightness(75); err != nil {
 		log.Printf("SetBrightness failed: %v", err)
-	} else {
-		fmt.Println("Brightness set!")
 	}
 
-	// Create a solid red image
-	fmt.Println("Creating test image...")
-	img := image.NewRGBA(image.Rect(0, 0, pixels, pixels))
-	for y := 0; y < pixels; y++ {
-		for x := 0; x < pixels; x++ {
-			img.Set(x, y, color.RGBA{255, 0, 0, 255})
+	// Demo: Set each key to a different color
+	fmt.Println("\n[*] Setting rainbow colors on all keys...")
+	colors := []color.RGBA{
+		{255, 0, 0, 255},     // Red
+		{255, 127, 0, 255},   // Orange
+		{255, 255, 0, 255},   // Yellow
+		{0, 255, 0, 255},     // Green
+		{0, 255, 255, 255},   // Cyan
+		{0, 127, 255, 255},   // Light blue
+		{0, 0, 255, 255},     // Blue
+		{127, 0, 255, 255},   // Purple
+		{255, 0, 255, 255},   // Magenta
+		{255, 0, 127, 255},   // Pink
+		{128, 128, 128, 255}, // Gray
+		{255, 255, 255, 255}, // White
+		{64, 64, 64, 255},    // Dark gray
+		{128, 64, 0, 255},    // Brown
+		{0, 128, 64, 255},    // Teal
+	}
+
+	for i := 0; i < dev.Keys() && i < len(colors); i++ {
+		col, row := dev.KeyToCoord(i)
+		fmt.Printf("  Key %d (col %d, row %d): setting color...\n", i, col, row)
+		if err := dev.SetKeyColor(i, colors[i]); err != nil {
+			log.Printf("SetKeyColor %d failed: %v", i, err)
 		}
 	}
 
-	// Set image on button 0
-	fmt.Println("Setting image on button 0...")
-	err = setImage(dev, 0, img)
-	if err != nil {
-		log.Fatal("SetImage failed:", err)
-	}
+	fmt.Println("\n[OK] All keys colored!")
+	fmt.Println("\n[*] Press any key on the Stream Deck (Ctrl+C to exit)...\n")
 
-	fmt.Println("Success! Red square should be on button 0")
-}
+	// Listen for key presses
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-func setBrightness(dev *hid.Device, percent int) error {
-	if percent < 0 {
-		percent = 0
-	}
-	if percent > 100 {
-		percent = 100
-	}
+	// Handle Ctrl+C
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Println("\n\nExiting...")
+		cancel()
+	}()
 
-	// Stream Deck MK.2 brightness command
-	data := make([]byte, 32)
-	data[0] = 0x03
-	data[1] = 0x08
-	data[2] = byte(percent)
+	// Listen for key events
+	events := make(chan streamdeck.KeyEvent, 10)
+	dev.ListenKeys(ctx, events)
 
-	_, err := dev.SendFeatureReport(data)
-	return err
-}
-
-func setImage(dev *hid.Device, keyIndex int, img image.Image) error {
-	// Convert image to JPEG
-	var buf bytes.Buffer
-	err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90})
-	if err != nil {
-		return fmt.Errorf("jpeg encode: %w", err)
-	}
-	imageData := buf.Bytes()
-
-	// Stream Deck MK.2 uses 1024 byte pages with 8 byte header
-	pageSize := 1024
-	headerSize := 8
-	payloadSize := pageSize - headerSize
-
-	totalPages := (len(imageData) + payloadSize - 1) / payloadSize
-
-	for page := 0; page < totalPages; page++ {
-		start := page * payloadSize
-		end := start + payloadSize
-		if end > len(imageData) {
-			end = len(imageData)
-		}
-		chunk := imageData[start:end]
-
-		isLastPage := page == totalPages-1
-
-		// Build the report
-		report := make([]byte, pageSize)
-		report[0] = 0x02           // Report ID for image
-		report[1] = 0x07           // Command
-		report[2] = byte(keyIndex) // Key index
-		if isLastPage {
-			report[3] = 0x01 // Last page flag
+	for event := range events {
+		col, row := dev.KeyToCoord(event.Key)
+		if event.Pressed {
+			fmt.Printf("[D] Key %d pressed  (col %d, row %d)\n", event.Key, col, row)
 		} else {
-			report[3] = 0x00
-		}
-		report[4] = byte(len(chunk) & 0xFF) // Payload length low byte
-		report[5] = byte(len(chunk) >> 8)   // Payload length high byte
-		report[6] = byte(page & 0xFF)       // Page number low byte
-		report[7] = byte(page >> 8)         // Page number high byte
-
-		copy(report[headerSize:], chunk)
-
-		_, err := dev.Write(report)
-		if err != nil {
-			return fmt.Errorf("write page %d: %w", page, err)
+			fmt.Printf("[U] Key %d released (col %d, row %d)\n", event.Key, col, row)
 		}
 	}
 
-	return nil
+	fmt.Println("Done!")
 }

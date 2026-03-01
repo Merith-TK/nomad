@@ -57,3 +57,7 @@ htmlcov/
 
 # Documentation (build artifacts)
 docs/_build/
+
+# Golang Output Files
+*.exe
+*.dll
