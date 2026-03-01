@@ -6,20 +6,18 @@ local shell = require("shell")
 
 -- Passive: show current memory usage
 function passive(key, state)
-    -- Get memory usage via Windows WMIC
-    local out, _, code = shell.exec("wmic OS get FreePhysicalMemory,TotalVisibleMemorySize /Value")
-    if code == 0 then
-        local free = out:match("FreePhysicalMemory=(%d+)")
-        local total = out:match("TotalVisibleMemorySize=(%d+)")
+    -- Only update every 5 seconds to reduce load
+    local now = os.time()
+    if not state.last_update or (now - state.last_update) >= 5 then
+        state.last_update = now
 
-        if free and total then
-            free = tonumber(free) / 1024 / 1024 -- Convert to GB
-            total = tonumber(total) / 1024 / 1024
-            local used = total - free
-            local percent = (used / total) * 100
-            state.memory_used = used
-            state.memory_total = total
-            state.memory_percent = percent
+        -- Get memory usage via free command (Linux)
+        local out, _, code = shell.exec("free | grep Mem | awk '{printf \"%.0f\", $3/$2 * 100.0}'")
+        if code == 0 then
+            local percent = tonumber(out:match("([%d]+)"))
+            if percent then
+                state.memory_percent = percent
+            end
         end
     end
 

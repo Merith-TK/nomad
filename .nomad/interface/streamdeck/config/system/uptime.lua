@@ -6,15 +6,22 @@ local shell = require("shell")
 
 -- Passive: show system uptime
 function passive(key, state)
-    -- Get uptime via Windows systeminfo
-    local out, _, code = shell.exec("powershell -Command \"(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime | Format-Table -HideTableHeaders\"")
-    if code == 0 then
-        -- Parse the output (format: dd.hh:mm:ss)
-        local days, hours, mins, secs = out:match("(%d+)%s+(%d+):(%d+):(%d+)")
-        if days and hours and mins then
-            state.uptime_days = tonumber(days)
-            state.uptime_hours = tonumber(hours)
-            state.uptime_mins = tonumber(mins)
+    -- Only update every 60 seconds (uptime doesn't change often)
+    local now = os.time()
+    if not state.last_update or (now - state.last_update) >= 60 then
+        state.last_update = now
+
+        -- Get uptime via uptime command (Linux)
+        local out, _, code = shell.exec("uptime -p")
+        if code == 0 then
+            -- Parse output like "up 1 day, 2 hours, 30 minutes"
+            local days = out:match("(%d+) day")
+            local hours = out:match("(%d+) hour")
+            local mins = out:match("(%d+) minute")
+
+            state.uptime_days = days and tonumber(days) or 0
+            state.uptime_hours = hours and tonumber(hours) or 0
+            state.uptime_mins = mins and tonumber(mins) or 0
         end
     end
 

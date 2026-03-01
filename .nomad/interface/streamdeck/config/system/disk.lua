@@ -1,4 +1,4 @@
--- disk.lua - Shows disk usage for C: drive
+-- disk.lua - Shows disk usage for root filesystem
 -- Demonstrates: system monitoring with passive updates
 
 local system = require("system")
@@ -6,20 +6,18 @@ local shell = require("shell")
 
 -- Passive: show current disk usage
 function passive(key, state)
-    -- Get disk usage via Windows WMIC
-    local out, _, code = shell.exec("wmic logicaldisk where name=\"C:\" get FreeSpace,Size /Value")
-    if code == 0 then
-        local free = out:match("FreeSpace=(%d+)")
-        local total = out:match("Size=(%d+)")
+    -- Only update every 30 seconds to reduce load (disk I/O is expensive)
+    local now = os.time()
+    if not state.last_update or (now - state.last_update) >= 30 then
+        state.last_update = now
 
-        if free and total then
-            free = tonumber(free) / 1024 / 1024 / 1024 -- Convert to GB
-            total = tonumber(total) / 1024 / 1024 / 1024
-            local used = total - free
-            local percent = (used / total) * 100
-            state.disk_used = used
-            state.disk_total = total
-            state.disk_percent = percent
+        -- Get disk usage via df command (Linux)
+        local out, _, code = shell.exec("df / | tail -1 | awk '{print $5}' | sed 's/%//'")
+        if code == 0 then
+            local percent = tonumber(out:match("([%d]+)"))
+            if percent then
+                state.disk_percent = percent
+            end
         end
     end
 

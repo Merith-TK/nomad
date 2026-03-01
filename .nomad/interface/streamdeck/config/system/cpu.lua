@@ -6,12 +6,18 @@ local shell = require("shell")
 
 -- Passive: show current CPU usage
 function passive(key, state)
-    -- Get CPU usage via Windows performance counter
-    local out, _, code = shell.exec("powershell -Command \"Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 1 | Select-Object -ExpandProperty CounterSamples | Select-Object -ExpandProperty CookedValue\"")
-    if code == 0 then
-        local cpu = tonumber(out:match("([%d%.]+)"))
-        if cpu then
-            state.cpu = cpu
+    -- Only update every 5 seconds to reduce load
+    local now = os.time()
+    if not state.last_update or (now - state.last_update) >= 5 then
+        state.last_update = now
+
+        -- Get CPU usage via top command (Linux)
+        local out, _, code = shell.exec("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'")
+        if code == 0 then
+            local cpu = tonumber(out:match("([%d%.]+)"))
+            if cpu then
+                state.cpu = cpu
+            end
         end
     end
 

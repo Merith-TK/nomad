@@ -6,16 +6,23 @@ local shell = require("shell")
 
 -- Passive: show network status
 function passive(key, state)
-    -- Check if we can reach a common internet host
-    local out, _, code = shell.exec("ping -n 1 -w 1000 8.8.8.8 >nul 2>&1 && echo online || echo offline")
+    -- Only update every 10 seconds to reduce load
+    local now = os.time()
+    if not state.last_update or (now - state.last_update) >= 10 then
+        state.last_update = now
 
-    local is_online = false
-    if code == 0 and out:find("online") then
-        is_online = true
+        -- Check if we can reach a common internet host (Linux)
+        local out, _, code = shell.exec("timeout 2 ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1 && echo online || echo offline")
+
+        local is_online = false
+        if code == 0 and out:find("online") then
+            is_online = true
+        end
+
+        state.network_online = is_online
     end
 
-    state.network_online = is_online
-
+    local is_online = state.network_online
     local color = {255, 0, 0} -- Red for offline
     local status = "OFFLINE"
 

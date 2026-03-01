@@ -32,7 +32,7 @@ import (
 
 const (
 	// PassiveFPS is the rate at which passive functions are called.
-	PassiveFPS = 10
+	PassiveFPS = 5
 	// PassiveInterval is the duration between passive calls.
 	PassiveInterval = time.Second / PassiveFPS
 )
