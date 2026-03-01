@@ -8,6 +8,7 @@ OpenSCAD parametric source files for 3D printable components.
 - **puck_fit_test.scad** - Fit test set with tolerance variations
 - **baseplate_initial.scad** - Puck-to-Pi Zero mounting plate with 6.5mm clearance
 - **screw_cutout.scad** - Reusable M2.5 screw hole module with hex nut recess
+- **interfaces/streamdeck_interface_plate.scad** - Interface plate scaffold with optional Stream Deck cutout from reference STL
 
 ## Assembly Files
 
@@ -16,6 +17,12 @@ OpenSCAD parametric source files for 3D printable components.
   - Set `show_exploded = true` for exploded view
 
 See [README_IMPORTS.md](README_IMPORTS.md) for details on using `use` and `include` to import SCAD files.
+
+## Reference Model Requirement
+
+- Required model: https://grabcad.com/library/stream-deck-mk2-1
+- This specific Stream Deck MK2 model is used as the cutout reference for further alterations.
+- Place the STEP file at: `.reference/streamdeck.mk2.stp`
 
 ## Archive
 

@@ -77,15 +77,15 @@ merge_pieces = [
     // Left module mount to baseplate bridge
     [
         "cuboid",
-        [5.5, 70, 4],           // Dimensions [W, L, H] (mm)
-        [29.1, -27.5, 10.5],   // Position [X, Y, Z] (mm)
+        [6, 70, 4],           // Dimensions [W, L, H] (mm)
+        [28, -27.5, 10.5],   // Position [X, Y, Z] (mm)
         [0, 0, 0]             // Rotation [X, Y, Z] (degrees)
     ],
     // Right module mount to baseplate bridge
     [
         "cuboid",
-        [5.5, 70, 4],            // Dimensions [W, L, H] (mm)
-        [-34.6, -27.5, 10.5],    // Position [X, Y, Z] (mm)
+        [6, 70, 4],            // Dimensions [W, L, H] (mm)
+        [-34.3, -27.5, 10.5],    // Position [X, Y, Z] (mm)
         [0, 0, 0]                // Rotation [X, Y, Z] (degrees)
     ]
 ];

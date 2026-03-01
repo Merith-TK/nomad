@@ -77,3 +77,9 @@ When imported with `use`, only the `module my_part()` is available - the `my_par
 - **Circular imports** will cause errors
 - **Shared constants** can go in a separate file and use `include`
 - **Color/transparency** only affects preview mode, not final renders
+
+## External Reference Model
+
+- Required model: https://grabcad.com/library/stream-deck-mk2-1
+- This specific Stream Deck MK2 model is used as the cutout reference for further alterations.
+- Place the STEP file at: `.reference/streamdeck.mk2.stp`

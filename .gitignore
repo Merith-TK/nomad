@@ -25,6 +25,7 @@ env/
 Thumbs.db
 
 # References and research materials
+.reference
 .references
 **/references/
 
@@ -34,12 +35,6 @@ Thumbs.db
 # Temp OpenSCAD files
 *.csg
 *.ast
-
-# Old output directory (now using stl/)
-output/*.stl
-output/*.obj
-output/*.step
-output/*.3mf
 
 # Keep all SCAD source files in cad/
 !cad/**/*.scad
