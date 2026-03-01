@@ -3,13 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
-	"image/color"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/merith-tk/nomad/pkg/streamdeck"
+)
+
+// Config paths
+const (
+	// Development config path (relative to working directory)
+	devConfigPath = ".nomad/interface/streamdeck/config"
 )
 
 func main() {
@@ -40,14 +46,14 @@ func main() {
 		fmt.Println()
 	}
 
-	// Demo: Use the first device
+	// Use the first device
 	info := devices[0]
 	if info.Model.PixelSize == 0 {
-		fmt.Println("First device has no display (e.g., Pedal). Skipping image test.")
+		fmt.Println("First device has no display (e.g., Pedal). Skipping.")
 		return
 	}
 
-	fmt.Printf("Opening %s for demo...\n", info.Model.Name)
+	fmt.Printf("Opening %s...\n", info.Model.Name)
 
 	dev, err := streamdeck.Open(info.Path)
 	if err != nil {
@@ -60,36 +66,40 @@ func main() {
 		log.Printf("SetBrightness failed: %v", err)
 	}
 
-	// Demo: Set each key to a different color
-	fmt.Println("\n[*] Setting rainbow colors on all keys...")
-	colors := []color.RGBA{
-		{255, 0, 0, 255},     // Red
-		{255, 127, 0, 255},   // Orange
-		{255, 255, 0, 255},   // Yellow
-		{0, 255, 0, 255},     // Green
-		{0, 255, 255, 255},   // Cyan
-		{0, 127, 255, 255},   // Light blue
-		{0, 0, 255, 255},     // Blue
-		{127, 0, 255, 255},   // Purple
-		{255, 0, 255, 255},   // Magenta
-		{255, 0, 127, 255},   // Pink
-		{128, 128, 128, 255}, // Gray
-		{255, 255, 255, 255}, // White
-		{64, 64, 64, 255},    // Dark gray
-		{128, 64, 0, 255},    // Brown
-		{0, 128, 64, 255},    // Teal
+	// Determine config path
+	configPath := devConfigPath
+
+	// Ensure config directory exists
+	if err := os.MkdirAll(configPath, 0755); err != nil {
+		log.Fatal("Failed to create config directory:", err)
 	}
 
-	for i := 0; i < dev.Keys() && i < len(colors); i++ {
-		col, row := dev.KeyToCoord(i)
-		fmt.Printf("  Key %d (col %d, row %d): setting color...\n", i, col, row)
-		if err := dev.SetKeyColor(i, colors[i]); err != nil {
-			log.Printf("SetKeyColor %d failed: %v", i, err)
-		}
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		log.Fatal("Failed to get absolute config path:", err)
 	}
 
-	fmt.Println("\n[OK] All keys colored!")
-	fmt.Println("\n[*] Press any key on the Stream Deck (Ctrl+C to exit)...\n")
+	fmt.Printf("\n[*] Config directory: %s\n", absConfigPath)
+
+	// Create navigator
+	nav := streamdeck.NewNavigator(dev, absConfigPath)
+
+	// Render initial page
+	fmt.Println("[*] Loading page...")
+	if err := nav.RenderPage(); err != nil {
+		log.Printf("Warning: RenderPage failed: %v", err)
+	}
+
+	// Show current path
+	page, _ := nav.LoadPage()
+	if page != nil {
+		fmt.Printf("[*] Current: %s (%d items, page %d/%d)\n",
+			page.Path, len(page.Items), page.PageIndex+1, page.TotalPages)
+	}
+
+	fmt.Println("\n[*] Navigation ready (Ctrl+C to exit)...")
+	fmt.Println("    - Press folder buttons to navigate into them")
+	fmt.Println("    - Press '<-' to go back\n")
 
 	// Listen for key presses
 	ctx, cancel := context.WithCancel(context.Background())
@@ -109,11 +119,44 @@ func main() {
 	dev.ListenKeys(ctx, events)
 
 	for event := range events {
+		// Only handle key presses, not releases
+		if !event.Pressed {
+			continue
+		}
+
 		col, row := dev.KeyToCoord(event.Key)
-		if event.Pressed {
-			fmt.Printf("[D] Key %d pressed  (col %d, row %d)\n", event.Key, col, row)
-		} else {
-			fmt.Printf("[U] Key %d released (col %d, row %d)\n", event.Key, col, row)
+		fmt.Printf("[D] Key %d pressed (col %d, row %d)\n", event.Key, col, row)
+
+		// Handle the key press
+		item, navigated, err := nav.HandleKeyPress(event.Key)
+		if err != nil {
+			log.Printf("Error handling key: %v", err)
+			continue
+		}
+
+		if navigated {
+			// Page changed, re-render
+			if err := nav.RenderPage(); err != nil {
+				log.Printf("RenderPage failed: %v", err)
+			}
+
+			page, _ := nav.LoadPage()
+			if page != nil {
+				relPath, _ := filepath.Rel(absConfigPath, page.Path)
+				if relPath == "." {
+					relPath = "/"
+				} else {
+					relPath = "/" + relPath
+				}
+				fmt.Printf("[*] Navigated to: %s (%d items)\n", relPath, len(page.Items))
+			}
+		} else if item != nil {
+			// Action/script triggered
+			fmt.Printf("[*] Action triggered: %s\n", item.Name)
+			if item.Script != "" {
+				fmt.Printf("    Script: %s\n", item.Script)
+				// TODO: Execute Lua script
+			}
 		}
 	}
 
