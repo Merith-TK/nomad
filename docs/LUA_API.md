@@ -47,6 +47,78 @@ function passive(key, state)
 end
 ```
 
+## Dual Architecture Support
+
+Scripts support two architectures for maximum flexibility:
+
+### Legacy Mode (Global Functions)
+Define functions globally as shown in the examples above. This mode is fully backward compatible.
+
+### Module Mode (Return Table)
+Return a table containing your functions for better organization:
+
+```lua
+local utils = require("utils")
+
+local function myTrigger(state)
+    -- Do something
+end
+
+local function myPassive(key, state)
+    return {
+        color = {0, 255, 0},
+        text = "Ready",
+        text_color = {0, 0, 0}
+    }
+end
+
+local function myBackground(state)
+    while true do
+        -- Background work
+        system.sleep(1000)
+    end
+end
+
+-- Return module table
+return {
+    trigger = myTrigger,
+    passive = myPassive,
+    background = myBackground
+}
+```
+
+Both modes are automatically detected. Module mode is recommended for new scripts.
+
+## Standard Library (lualib)
+
+NOMAD provides built-in stdlib modules implemented in Go — no disk I/O on `require()`:
+
+### `utils` - Table utilities
+```lua
+local utils = require("utils")
+
+utils.deepcopy(t)           -- deep copy of table t
+utils.contains(t, value)    -- true if value exists in t
+utils.size(t)               -- count of all entries (including non-sequence)
+utils.merge(t1, t2)         -- deep copy of t1 with t2 keys merged in (t2 wins)
+```
+
+### `strings` - String utilities
+```lua
+local strings = require("strings")
+
+strings.split(str, sep)          -- split str by sep, returns table
+strings.trim(str)                -- strip leading/trailing whitespace
+strings.startswith(str, prefix)  -- true if str begins with prefix
+strings.endswith(str, suffix)    -- true if str ends with suffix
+strings.contains(str, substr)    -- true if substr found in str
+strings.replace(str, old, new [, n]) -- replace n occurrences (-1 = all)
+strings.upper(str)               -- uppercase
+strings.lower(str)               -- lowercase
+strings.capitalize(str)          -- first letter uppercased
+strings.titlecase(str)           -- title case each word
+```
+
 ## Global Variables
 
 | Variable | Description |

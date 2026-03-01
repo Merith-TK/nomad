@@ -113,7 +113,7 @@ func (a *App) Init() error {
 
 	fmt.Printf("Opening %s...\n", info.Model.Name)
 
-	dev, err := streamdeck.Open(info.Path)
+	dev, err := streamdeck.OpenWithConfig(info.Path, a.config.Performance.JPEGQuality)
 	if err != nil {
 		return fmt.Errorf("failed to open device: %w", err)
 	}

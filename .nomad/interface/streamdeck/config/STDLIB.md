@@ -4,6 +4,9 @@ This document describes the additional Lua modules available in the NOMAD script
 
 ## Table of Contents
 
+- [Script Architectures](#script-architectures)
+  - [Legacy Mode (Global Functions)](#legacy-mode-global-functions)
+  - [Module Mode (Return Table)](#module-mode-return-table)
 - [Available Modules](#available-modules)
   - [json - JSON Encoding/Decoding](#json---json-encodingdecoding)
   - [file - File System Operations](#file---file-system-operations)
@@ -13,6 +16,79 @@ This document describes the additional Lua modules available in the NOMAD script
 - [Migration Guide](#migration-guide)
 - [Best Practices](#best-practices)
 - [Examples](#examples)
+
+## Script Architectures
+
+NOMAD supports two script architectures for maximum flexibility:
+
+### Legacy Mode (Global Functions)
+
+The original architecture where scripts define global functions:
+
+```lua
+-- Legacy mode script
+function trigger(state)
+    print("Button pressed!")
+end
+
+function passive(key, state)
+    return {color = {255, 0, 0}, text = "Hello"}
+end
+
+function background(state)
+    while true do
+        -- Background work
+        coroutine.yield(1000)
+    end
+end
+```
+
+### Module Mode (Return Table)
+
+The new module-based architecture inspired by ComputerCraft:
+
+```lua
+-- Module mode script
+local script = {}
+
+script.config = {
+    name = "My Script",
+    version = "1.0.0",
+    counter = 0
+}
+
+script.data = {
+    clicks = 0
+}
+
+function script.trigger(state)
+    script.data.clicks = script.data.clicks + 1
+    print("Clicked " .. script.data.clicks .. " times")
+end
+
+function script.passive(key, state)
+    return {
+        color = {0, 255, 0},
+        text = tostring(script.data.clicks)
+    }
+end
+
+function script.background(state)
+    while true do
+        script.debugPrint("Running...")
+        coroutine.yield(5000)
+    end
+end
+
+return script  -- Important: return the module table
+```
+
+**Benefits of Module Mode:**
+- Better encapsulation and organization
+- Configuration accessible to host system
+- Cleaner separation of data and functions
+- Easier testing and debugging
+- More maintainable code
 
 ## Available Modules
 
@@ -211,7 +287,7 @@ If you have existing scripts, they will continue to work unchanged. The new modu
 
 ## Examples
 
-### Persistent Counter
+### Legacy Mode: Persistent Counter
 
 ```lua
 local file = require("file")
@@ -235,6 +311,82 @@ function trigger(state)
     local data = json.encode({count = counter})
     file.write("counter.json", data)
 end
+```
+
+### Module Mode: Advanced Counter
+
+```lua
+local file = require("file")
+local json = require("json")
+
+local counter = {}
+
+counter.config = {
+    name = "Advanced Counter",
+    version = "1.0.0",
+    persist_file = "counter.json",
+    max_count = 1000
+}
+
+counter.data = {
+    count = 0,
+    last_increment = 0,
+    history = {}
+}
+
+function counter.init()
+    -- Load persisted data
+    local data, err = file.read(counter.config.persist_file)
+    if data then
+        local decoded = json.decode(data)
+        if decoded then
+            counter.data = decoded
+        end
+    end
+end
+
+function counter.trigger(state)
+    counter.data.count = counter.data.count + 1
+    counter.data.last_increment = os.time()
+
+    -- Keep history
+    table.insert(counter.data.history, {
+        time = counter.data.last_increment,
+        count = counter.data.count
+    })
+
+    -- Limit history size
+    if #counter.data.history > 10 then
+        table.remove(counter.data.history, 1)
+    end
+
+    -- Persist data
+    local data = json.encode(counter.data)
+    file.write(counter.config.persist_file, data)
+
+    print("Counter:", counter.data.count)
+end
+
+function counter.passive(key, state)
+    local color = {0, 255, 0} -- Green
+    if counter.data.count > counter.config.max_count / 2 then
+        color = {255, 255, 0} -- Yellow
+    end
+    if counter.data.count > counter.config.max_count * 0.9 then
+        color = {255, 0, 0} -- Red
+    end
+
+    return {
+        color = color,
+        text = tostring(counter.data.count),
+        text_color = {255, 255, 255}
+    }
+end
+
+-- Initialize
+counter.init()
+
+return counter
 ```
 
 ### Scheduled Tasks

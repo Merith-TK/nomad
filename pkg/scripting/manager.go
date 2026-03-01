@@ -55,6 +55,10 @@ type ScriptManager struct {
 	visibleScripts map[string]int // script path -> key index (currently visible)
 	refreshPending bool           // flag for coalesced refresh requests
 
+	// Passive update batching
+	lastPassiveUpdate time.Time
+	passiveBatch      map[string]*KeyAppearance // batched updates
+
 	// Boot animation
 	bootScriptPath string
 
@@ -73,6 +77,7 @@ func NewScriptManager(dev *streamdeck.Device, configDir string, passiveFPS int) 
 		passiveFPS:     passiveFPS,
 		runners:        make(map[string]*ScriptRunner),
 		visibleScripts: make(map[string]int),
+		passiveBatch:   make(map[string]*KeyAppearance),
 	}
 }
 
@@ -167,8 +172,11 @@ func (m *ScriptManager) runBootAnimation() {
 	}
 	defer runner.Close()
 
-	// Call the boot function if defined
-	fn := runner.L.GetGlobal("boot")
+	// Call the boot function from the module table
+	if runner.module == nil {
+		return
+	}
+	fn := runner.module.RawGetString("boot")
 	if fn.Type() != lua.LTFunction {
 		return
 	}
@@ -212,6 +220,9 @@ func (m *ScriptManager) passiveLoop() {
 			return
 		case <-ticker.C:
 			m.runPassiveUpdate()
+
+			// Process batched updates (limit to prevent blocking)
+			m.processBatchedUpdates(5) // Process up to 5 updates per tick
 		}
 	}
 }
@@ -223,12 +234,7 @@ func (m *ScriptManager) runPassiveUpdate() {
 	for k, v := range m.visibleScripts {
 		visible[k] = v
 	}
-	callback := m.onKeyUpdate
 	m.mu.RUnlock()
-
-	if callback == nil {
-		return
-	}
 
 	if len(visible) == 0 {
 		return
@@ -249,8 +255,62 @@ func (m *ScriptManager) runPassiveUpdate() {
 		}
 
 		if appearance != nil {
-			callback(keyIndex, appearance)
+			// Batch the update instead of calling callback immediately
+			m.batchUpdate(scriptPath, appearance)
 		}
+	}
+}
+
+// batchUpdate adds an update to the batch queue.
+func (m *ScriptManager) batchUpdate(scriptPath string, appearance *KeyAppearance) {
+	m.mu.Lock()
+	m.passiveBatch[scriptPath] = appearance
+	m.mu.Unlock()
+}
+
+// processBatchedUpdates processes queued passive updates.
+func (m *ScriptManager) processBatchedUpdates(maxUpdates int) {
+	m.mu.Lock()
+	batch := make(map[string]*KeyAppearance)
+	for k, v := range m.passiveBatch {
+		batch[k] = v
+	}
+	// Clear the batch
+	m.passiveBatch = make(map[string]*KeyAppearance)
+	callback := m.onKeyUpdate
+	m.mu.Unlock()
+
+	if callback == nil {
+		return
+	}
+
+	// Process updates
+	processed := 0
+	for scriptPath, appearance := range batch {
+		if processed >= maxUpdates {
+			break
+		}
+
+		// Find the key index for this script
+		m.mu.RLock()
+		keyIndex, visible := m.visibleScripts[scriptPath]
+		m.mu.RUnlock()
+
+		if visible {
+			callback(keyIndex, appearance)
+			processed++
+		}
+	}
+
+	// Re-queue remaining updates if we hit the limit
+	if len(batch) > processed {
+		m.mu.Lock()
+		for scriptPath, appearance := range batch {
+			if _, alreadyProcessed := m.passiveBatch[scriptPath]; !alreadyProcessed {
+				m.passiveBatch[scriptPath] = appearance
+			}
+		}
+		m.mu.Unlock()
 	}
 }
 

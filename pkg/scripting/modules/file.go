@@ -1,12 +1,20 @@
 package modules
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
 	lua "github.com/yuin/gopher-lua"
 )
+
+// checkFileAccess returns true if path is within the config directory.
+func checkFileAccess(path string, L *lua.LState) bool {
+	configDir := L.GetGlobal("CONFIG_DIR").String()
+	if configDir == "" {
+		return true
+	}
+	return filepath.HasPrefix(filepath.Clean(path), filepath.Clean(configDir))
+}
 
 // FileModule provides file system operations for Lua scripts.
 type FileModule struct{}
@@ -36,17 +44,14 @@ func (m *FileModule) Loader(L *lua.LState) int {
 func (m *FileModule) fileRead(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	// Security: restrict to config directory and subdirectories
-	configDir := L.GetGlobal("CONFIG_DIR").String()
-	if configDir != "" {
-		if !filepath.HasPrefix(filepath.Clean(path), filepath.Clean(configDir)) {
-			L.Push(lua.LNil)
-			L.Push(lua.LString("Access denied: can only read files within config directory"))
-			return 2
-		}
+	// Check file access permissions
+	if !checkFileAccess(path, L) {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("access denied"))
+		return 2
 	}
 
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -62,17 +67,14 @@ func (m *FileModule) fileWrite(L *lua.LState) int {
 	path := L.CheckString(1)
 	content := L.CheckString(2)
 
-	// Security: restrict to config directory and subdirectories
-	configDir := L.GetGlobal("CONFIG_DIR").String()
-	if configDir != "" {
-		if !filepath.HasPrefix(filepath.Clean(path), filepath.Clean(configDir)) {
-			L.Push(lua.LFalse)
-			L.Push(lua.LString("Access denied: can only write files within config directory"))
-			return 2
-		}
+	// Check file access permissions
+	if !checkFileAccess(path, L) {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("access denied"))
+		return 2
 	}
 
-	err := ioutil.WriteFile(path, []byte(content), 0644)
+	err := os.WriteFile(path, []byte(content), 0644)
 	if err != nil {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString(err.Error()))
@@ -88,14 +90,11 @@ func (m *FileModule) fileAppend(L *lua.LState) int {
 	path := L.CheckString(1)
 	content := L.CheckString(2)
 
-	// Security: restrict to config directory and subdirectories
-	configDir := L.GetGlobal("CONFIG_DIR").String()
-	if configDir != "" {
-		if !filepath.HasPrefix(filepath.Clean(path), filepath.Clean(configDir)) {
-			L.Push(lua.LFalse)
-			L.Push(lua.LString("Access denied: can only write files within config directory"))
-			return 2
-		}
+	// Check file access permissions
+	if !checkFileAccess(path, L) {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("access denied"))
+		return 2
 	}
 
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -121,13 +120,10 @@ func (m *FileModule) fileAppend(L *lua.LState) int {
 func (m *FileModule) fileExists(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	// Security: restrict to config directory and subdirectories
-	configDir := L.GetGlobal("CONFIG_DIR").String()
-	if configDir != "" {
-		if !filepath.HasPrefix(filepath.Clean(path), filepath.Clean(configDir)) {
-			L.Push(lua.LFalse)
-			return 1
-		}
+	// Check file access permissions
+	if !checkFileAccess(path, L) {
+		L.Push(lua.LFalse)
+		return 1
 	}
 
 	_, err := os.Stat(path)
@@ -138,14 +134,11 @@ func (m *FileModule) fileExists(L *lua.LState) int {
 func (m *FileModule) fileMkdir(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	// Security: restrict to config directory and subdirectories
-	configDir := L.GetGlobal("CONFIG_DIR").String()
-	if configDir != "" {
-		if !filepath.HasPrefix(filepath.Clean(path), filepath.Clean(configDir)) {
-			L.Push(lua.LFalse)
-			L.Push(lua.LString("Access denied: can only create directories within config directory"))
-			return 2
-		}
+	// Check file access permissions
+	if !checkFileAccess(path, L) {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("access denied"))
+		return 2
 	}
 
 	err := os.MkdirAll(path, 0755)
@@ -163,17 +156,14 @@ func (m *FileModule) fileMkdir(L *lua.LState) int {
 func (m *FileModule) fileList(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	// Security: restrict to config directory and subdirectories
-	configDir := L.GetGlobal("CONFIG_DIR").String()
-	if configDir != "" {
-		if !filepath.HasPrefix(filepath.Clean(path), filepath.Clean(configDir)) {
-			L.Push(lua.LNil)
-			L.Push(lua.LString("Access denied: can only list files within config directory"))
-			return 2
-		}
+	// Check file access permissions
+	if !checkFileAccess(path, L) {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("access denied"))
+		return 2
 	}
 
-	entries, err := ioutil.ReadDir(path)
+	entries, err := os.ReadDir(path)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -185,7 +175,12 @@ func (m *FileModule) fileList(L *lua.LState) int {
 		entryTbl := L.NewTable()
 		entryTbl.RawSetString("name", lua.LString(entry.Name()))
 		entryTbl.RawSetString("is_dir", lua.LBool(entry.IsDir()))
-		entryTbl.RawSetString("size", lua.LNumber(entry.Size()))
+		// DirEntry.Info() is a cheap cached call for local filesystems
+		if info, err := entry.Info(); err == nil {
+			entryTbl.RawSetString("size", lua.LNumber(info.Size()))
+		} else {
+			entryTbl.RawSetString("size", lua.LNumber(0))
+		}
 		tbl.RawSetInt(i+1, entryTbl)
 	}
 
@@ -197,14 +192,11 @@ func (m *FileModule) fileList(L *lua.LState) int {
 func (m *FileModule) fileRemove(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	// Security: restrict to config directory and subdirectories
-	configDir := L.GetGlobal("CONFIG_DIR").String()
-	if configDir != "" {
-		if !filepath.HasPrefix(filepath.Clean(path), filepath.Clean(configDir)) {
-			L.Push(lua.LFalse)
-			L.Push(lua.LString("Access denied: can only remove files within config directory"))
-			return 2
-		}
+	// Check file access permissions
+	if !checkFileAccess(path, L) {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("access denied"))
+		return 2
 	}
 
 	err := os.Remove(path)
@@ -222,13 +214,9 @@ func (m *FileModule) fileRemove(L *lua.LState) int {
 func (m *FileModule) fileSize(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	// Security: restrict to config directory and subdirectories
-	configDir := L.GetGlobal("CONFIG_DIR").String()
-	if configDir != "" {
-		if !filepath.HasPrefix(filepath.Clean(path), filepath.Clean(configDir)) {
-			L.Push(lua.LNumber(-1))
-			return 1
-		}
+	if !checkFileAccess(path, L) {
+		L.Push(lua.LNumber(-1))
+		return 1
 	}
 
 	info, err := os.Stat(path)
@@ -244,13 +232,9 @@ func (m *FileModule) fileSize(L *lua.LState) int {
 func (m *FileModule) fileIsDir(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	// Security: restrict to config directory and subdirectories
-	configDir := L.GetGlobal("CONFIG_DIR").String()
-	if configDir != "" {
-		if !filepath.HasPrefix(filepath.Clean(path), filepath.Clean(configDir)) {
-			L.Push(lua.LFalse)
-			return 1
-		}
+	if !checkFileAccess(path, L) {
+		L.Push(lua.LFalse)
+		return 1
 	}
 
 	info, err := os.Stat(path)

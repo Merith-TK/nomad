@@ -1,34 +1,25 @@
 -- clock.lua - Displays current time on the button
--- Demonstrates: passive-only script with animated display
 
-local system = require("system")
+local time = require("time")
 
--- No background needed - passive updates at 15fps
--- No trigger needed - this is display-only
+local script = {}
 
--- Passive: show current time
-function passive(key, state)
-    -- Update state every second
-    local current = os.time()
-    if state.last_time ~= current then
-        state.last_time = current
-        local t = os.date("*t", current)
-        state.hour = t.hour
-        state.min = t.min
-        state.sec = t.sec
+function script.passive(key, state)
+    local now = time.now()
+    if state.last_ts ~= now then
+        state.last_ts = now
+        local d = time.date(now)
+        state.hour = d.hour
+        state.min  = d.minute
+        state.sec  = d.second
     end
-    
-    -- Format time
-    local time_str = string.format("%02d:%02d", state.hour or 0, state.min or 0)
-    
-    -- Blink colon every second
-    if (state.sec or 0) % 2 == 0 then
-        time_str = string.format("%02d %02d", state.hour or 0, state.min or 0)
-    end
-    
-    return {
-        color = {20, 20, 60},
-        text = time_str,
-        text_color = {100, 200, 255}
-    }
+
+    local h, m, s = state.hour or 0, state.min or 0, state.sec or 0
+    -- Blink the separator every other second
+    local sep = (s % 2 == 0) and ":" or " "
+    local text = string.format("%02d%s%02d", h, sep, m)
+
+    return { color = {20, 20, 60}, text = text, text_color = {100, 200, 255} }
 end
+
+return script
