@@ -1,23 +1,4 @@
 // Package streamdeck provides a Go library for interfacing with Elgato Stream Deck devices.
-//
-// This package offers low-level control over Stream Deck hardware, including:
-// - Device discovery and enumeration
-// - Image display and key color control
-// - Key event monitoring and handling
-// - Firmware information retrieval
-// - Model-specific feature support
-//
-// Key components:
-// - Device: Main interface for Stream Deck operations
-// - Model: Device model specifications and capabilities
-// - KeyEvent: Key press/release event structure
-// - Navigator: High-level folder-based navigation (separate package)
-//
-// Contributors can extend functionality by:
-// - Adding support for new device models in models.go
-// - Implementing additional image formats
-// - Adding device-specific features
-// - Creating higher-level abstractions
 package streamdeck
 
 import (
@@ -181,7 +162,6 @@ func (d *Device) Reset() error {
 }
 
 // SetImage sets the image on a specific key.
-// The image is automatically resized to fit the key and rotated 180° for correct display.
 func (d *Device) SetImage(keyIndex int, img image.Image) error {
 	if keyIndex < 0 || keyIndex >= d.Model.Keys {
 		return fmt.Errorf("key index %d out of range (0-%d)", keyIndex, d.Model.Keys-1)
@@ -190,10 +170,7 @@ func (d *Device) SetImage(keyIndex int, img image.Image) error {
 		return fmt.Errorf("device does not support images")
 	}
 
-	// Prepare the image: resize and rotate
 	prepared := d.prepareImage(img)
-
-	// Encode to appropriate format
 	imageData, err := d.encodeImage(prepared)
 	if err != nil {
 		return err
@@ -201,20 +178,30 @@ func (d *Device) SetImage(keyIndex int, img image.Image) error {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
 	return d.writeImageData(keyIndex, imageData)
 }
 
-// SetImageRaw sets raw image data on a key without any processing.
-// Use this if you've already prepared the image correctly.
-func (d *Device) SetImageRaw(keyIndex int, imageData []byte) error {
+// EncodeKeyImage prepares and encodes an image for a key without holding the HID lock.
+// Use together with WriteKeyData for parallel page rendering:
+//
+//	data, err := dev.EncodeKeyImage(img)   // concurrent-safe, no lock
+//	dev.WriteKeyData(keyIndex, data)        // serialised HID write
+func (d *Device) EncodeKeyImage(img image.Image) ([]byte, error) {
+	if d.Model.PixelSize == 0 {
+		return nil, fmt.Errorf("device does not support images")
+	}
+	prepared := d.prepareImage(img)
+	return d.encodeImage(prepared)
+}
+
+// WriteKeyData writes pre-encoded image bytes to a key with the HID lock held.
+// Pair with EncodeKeyImage for parallel encode → serial write patterns.
+func (d *Device) WriteKeyData(keyIndex int, imageData []byte) error {
 	if keyIndex < 0 || keyIndex >= d.Model.Keys {
 		return fmt.Errorf("key index %d out of range (0-%d)", keyIndex, d.Model.Keys-1)
 	}
-
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
 	return d.writeImageData(keyIndex, imageData)
 }
 

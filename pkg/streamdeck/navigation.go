@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
@@ -237,38 +238,91 @@ func (n *Navigator) PrevPage() bool {
 }
 
 // RenderPage renders the current page to the Stream Deck.
+// Images are encoded concurrently, then written to the device serially.
+// No Clear() pass is needed — every key is explicitly overwritten.
 func (n *Navigator) RenderPage() error {
 	page, err := n.LoadPage()
 	if err != nil {
 		return err
 	}
 
-	// Clear all keys first
-	if err := n.dev.Clear(); err != nil {
-		return fmt.Errorf("clear: %w", err)
+	totalKeys := n.dev.Model.Keys
+	type keyFrame struct {
+		index int
+		data  []byte
+		err   error
 	}
 
-	// Render reserved column (column 0)
-	n.renderReservedKeys()
+	frames := make([]keyFrame, totalKeys)
+	for i := range frames {
+		frames[i].index = i
+	}
 
-	// Render content items on remaining keys (columns 1-4)
+	// Build image for every key (nil = black / unused)
+	images := make([]image.Image, totalKeys)
+
+	// Reserved column
+	if !n.IsAtRoot() {
+		images[KeyBack] = n.createTextImage("<-", color.RGBA{100, 100, 100, 255})
+	} else {
+		images[KeyBack] = n.createTextImage("HOME", color.RGBA{50, 50, 50, 255})
+	}
+	if n.toggleStates[KeyToggle1] {
+		images[KeyToggle1] = n.createTextImage("T1:ON", color.RGBA{0, 150, 0, 255})
+	} else {
+		images[KeyToggle1] = n.createTextImage("T1", color.RGBA{80, 80, 80, 255})
+	}
+	if n.toggleStates[KeyToggle2] {
+		images[KeyToggle2] = n.createTextImage("T2:ON", color.RGBA{0, 150, 0, 255})
+	} else {
+		images[KeyToggle2] = n.createTextImage("T2", color.RGBA{80, 80, 80, 255})
+	}
+
+	// Content keys
 	for i, item := range page.Items {
 		if i >= len(n.contentKeys) {
 			break
 		}
-
-		keyIndex := n.contentKeys[i]
-		var img image.Image
 		if item.IsFolder {
-			// Folder: blue background
-			img = n.createTextImage(truncateName(item.Name, 8), color.RGBA{30, 80, 180, 255})
+			images[n.contentKeys[i]] = n.createTextImage(truncateName(item.Name, 8), color.RGBA{30, 80, 180, 255})
 		} else {
-			// Script/action: green background
-			img = n.createTextImage(truncateName(item.Name, 8), color.RGBA{30, 130, 80, 255})
+			images[n.contentKeys[i]] = n.createTextImage(truncateName(item.Name, 8), color.RGBA{30, 130, 80, 255})
 		}
+	}
+	// Any remaining content keys (no item) stay nil → black
 
-		if err := n.dev.SetImage(keyIndex, img); err != nil {
-			return fmt.Errorf("set key %d: %w", keyIndex, err)
+	// Encode all keys concurrently
+	blackImg := func() image.Image {
+		size := n.dev.PixelSize()
+		img := image.NewRGBA(image.Rect(0, 0, size, size))
+		draw.Draw(img, img.Bounds(), image.Black, image.Point{}, draw.Src)
+		return img
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(totalKeys)
+	for i := 0; i < totalKeys; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			img := images[i]
+			if img == nil {
+				img = blackImg
+			}
+			data, err := n.dev.EncodeKeyImage(img)
+			frames[i].data = data
+			frames[i].err = err
+		}()
+	}
+	wg.Wait()
+
+	// Write serially (HID is not goroutine-safe for concurrent writes)
+	for _, f := range frames {
+		if f.err != nil {
+			return fmt.Errorf("encode key %d: %w", f.index, f.err)
+		}
+		if err := n.dev.WriteKeyData(f.index, f.data); err != nil {
+			return fmt.Errorf("write key %d: %w", f.index, err)
 		}
 	}
 
