@@ -1,6 +1,7 @@
 package scripting
 
 import (
+	"fmt"
 	"image/color"
 	"io"
 	"net/http"
@@ -19,6 +20,7 @@ func (r *ScriptRunner) loaderShell(L *lua.LState) int {
 		"exec":       r.shellExec,
 		"exec_async": r.shellExecAsync,
 		"open":       r.shellOpen,
+		"terminal":   r.shellTerminal,
 	})
 	L.Push(mod)
 	return 1
@@ -91,6 +93,61 @@ func (r *ScriptRunner) shellOpen(L *lua.LState) int {
 		cmd = exec.Command("open", target)
 	default:
 		cmd = exec.Command("xdg-open", target)
+	}
+
+	err := cmd.Start()
+	if err != nil {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	go cmd.Wait()
+
+	L.Push(lua.LTrue)
+	L.Push(lua.LNil)
+	return 2
+}
+
+// shellTerminal opens a new terminal window and runs the command in it.
+// On Windows: opens cmd.exe or Windows Terminal
+// On macOS: opens Terminal.app
+// On Linux: tries common terminal emulators
+func (r *ScriptRunner) shellTerminal(L *lua.LState) int {
+	cmdStr := L.CheckString(1)
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		// "start cmd /k <command>" opens a new cmd window and runs the command
+		// Pass as single string to cmd /c to avoid argument parsing issues
+		cmd = exec.Command("cmd", "/c", "start", cmdStr)
+		fmt.Println("terminal run call:", cmdStr)
+	case "darwin":
+		// Use osascript to open Terminal and run command
+		script := `tell application "Terminal" to do script "` + strings.ReplaceAll(cmdStr, `"`, `\"`) + `"`
+		cmd = exec.Command("osascript", "-e", script)
+	default:
+		// Linux: try common terminal emulators
+		terminals := [][]string{
+			{"x-terminal-emulator", "-e"},
+			{"gnome-terminal", "--"},
+			{"konsole", "-e"},
+			{"xfce4-terminal", "-e"},
+			{"xterm", "-e"},
+		}
+		for _, term := range terminals {
+			if _, err := exec.LookPath(term[0]); err == nil {
+				args := append(term[1:], "sh", "-c", cmdStr)
+				cmd = exec.Command(term[0], args...)
+				break
+			}
+		}
+		if cmd == nil {
+			L.Push(lua.LFalse)
+			L.Push(lua.LString("no terminal emulator found"))
+			return 2
+		}
 	}
 
 	err := cmd.Start()

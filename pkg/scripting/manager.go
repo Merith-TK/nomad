@@ -14,7 +14,7 @@ import (
 
 const (
 	// PassiveFPS is the rate at which passive functions are called.
-	PassiveFPS = 15
+	PassiveFPS = 10
 	// PassiveInterval is the duration between passive calls.
 	PassiveInterval = time.Second / PassiveFPS
 )
@@ -36,6 +36,7 @@ type ScriptManager struct {
 	// Passive loop
 	passiveRunning bool
 	visibleScripts map[string]int // script path -> key index (currently visible)
+	refreshPending bool           // flag for coalesced refresh requests
 
 	// Boot animation
 	bootScriptPath string
@@ -259,9 +260,11 @@ func (m *ScriptManager) TriggerScript(scriptPath string) error {
 }
 
 // requestRefresh is called when a script wants a display refresh.
+// Sets a flag that will be picked up by the next passive loop tick.
 func (m *ScriptManager) requestRefresh() {
-	// Run an immediate passive update
-	go m.runPassiveUpdate()
+	m.mu.Lock()
+	m.refreshPending = true
+	m.mu.Unlock()
 }
 
 // Shutdown stops all runners and cleans up.

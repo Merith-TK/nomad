@@ -197,6 +197,13 @@ func (r *ScriptRunner) backgroundLoop() {
 		// Call background(state)
 		err := r.callBackground()
 
+		// Always pause between calls to allow other operations (trigger, passive)
+		select {
+		case <-r.bgCtx.Done():
+			return
+		case <-time.After(1 * time.Second):
+		}
+
 		if err != nil {
 			fmt.Printf("[!] Background error in %s: %v\n", r.ScriptName, err)
 

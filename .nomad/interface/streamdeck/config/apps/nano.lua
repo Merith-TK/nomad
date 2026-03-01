@@ -10,17 +10,17 @@ local system = require("system")
 -- Restart policy: "always" (default), "never", or "once"
 RESTART_POLICY = "always"
 
--- Background worker: polls every 2 seconds to check if nano is running
+-- Background worker: called repeatedly by Go runtime (~1 second intervals)
+-- Just do ONE check per call - the Go loop handles the timing
+-- DO NOT use while true or sleep here - it blocks other script functions!
 function background(state)
-    while true do
-        if system.os() == "windows" then
-            local out, _, code = shell.exec("tasklist /FI \"IMAGENAME eq nano.exe\" /NH 2>nul")
-            state.running = (code == 0 and out:find("nano.exe") ~= nil)
-        else
-            state.running = false
-        end
-        system.sleep(2000)
+    if system.os() == "windows" then
+        local out, _, code = shell.exec("tasklist /FI \"IMAGENAME eq nano.exe\" /NH 2>nul")
+        state.running = (code == 0 and out:find("nano.exe") ~= nil)
+    else
+        state.running = false
     end
+    -- Returns immediately - Go handles timing between calls
 end
 
 -- Passive: customize icon appearance based on state
@@ -50,7 +50,8 @@ function trigger(state)
         return
     end
 
-    shell.open("nano.exe")
+    -- Open nano in a new terminal window
+    shell.terminal("nano")
     -- After opening, force a refresh to update state faster
     system.refresh()
 end
