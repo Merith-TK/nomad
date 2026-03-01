@@ -3,16 +3,17 @@ package modules
 import (
 	"image/color"
 
+	"github.com/merith-tk/nomad/pkg/streamdeck"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// StreamDeckModule provides StreamDeck control.
+// StreamDeckModule exposes Stream Deck hardware control to Lua scripts.
 type StreamDeckModule struct {
-	device interface{} // Would be *streamdeck.Device in real implementation
+	device *streamdeck.Device
 }
 
-// NewStreamDeckModule creates a new StreamDeck module.
-func NewStreamDeckModule(device interface{}) *StreamDeckModule {
+// NewStreamDeckModule creates a new StreamDeck module bound to a device.
+func NewStreamDeckModule(device *streamdeck.Device) *StreamDeckModule {
 	return &StreamDeckModule{device: device}
 }
 
@@ -32,119 +33,132 @@ func (m *StreamDeckModule) Loader(L *lua.LState) int {
 	return 1
 }
 
-func (m *StreamDeckModule) sdSetColor(L *lua.LState) int {
+func (m *StreamDeckModule) checkDevice(L *lua.LState) bool {
 	if m.device == nil {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString("no device connected"))
+		return false
+	}
+	return true
+}
+
+// sdSetColor sets a single key to a solid RGB color.
+// Lua: streamdeck.set_color(key, r, g, b) -> ok, err
+func (m *StreamDeckModule) sdSetColor(L *lua.LState) int {
+	if !m.checkDevice(L) {
 		return 2
 	}
-
 	key := L.CheckInt(1)
-	red := L.CheckInt(2)
+	r := L.CheckInt(2)
 	g := L.CheckInt(3)
 	b := L.CheckInt(4)
-
-	// In real implementation, this would call device.SetKeyColor
-	_ = key // Key index for the button
-	_ = color.RGBA{R: uint8(red), G: uint8(g), B: uint8(b), A: 255}
-
+	c := color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
+	if err := m.device.SetKeyColor(key, c); err != nil {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
 	L.Push(lua.LTrue)
 	L.Push(lua.LNil)
 	return 2
 }
 
+// sdSetBrightness sets the global brightness (0-100).
+// Lua: streamdeck.set_brightness(percent) -> ok, err
 func (m *StreamDeckModule) sdSetBrightness(L *lua.LState) int {
-	if m.device == nil {
-		L.Push(lua.LFalse)
-		L.Push(lua.LString("no device connected"))
+	if !m.checkDevice(L) {
 		return 2
 	}
-
-	percent := L.CheckInt(1)
-
-	// In real implementation, this would call device.SetBrightness
-	_ = percent
-
+	if err := m.device.SetBrightness(L.CheckInt(1)); err != nil {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
 	L.Push(lua.LTrue)
 	L.Push(lua.LNil)
 	return 2
 }
 
+// sdClear clears all keys to black.
+// Lua: streamdeck.clear() -> ok, err
 func (m *StreamDeckModule) sdClear(L *lua.LState) int {
-	if m.device == nil {
-		L.Push(lua.LFalse)
-		L.Push(lua.LString("no device connected"))
+	if !m.checkDevice(L) {
 		return 2
 	}
-
-	// In real implementation, this would call device.Clear
-
+	if err := m.device.Clear(); err != nil {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
 	L.Push(lua.LTrue)
 	L.Push(lua.LNil)
 	return 2
 }
 
+// sdClearKey sets a single key to black.
+// Lua: streamdeck.clear_key(key) -> ok, err
 func (m *StreamDeckModule) sdClearKey(L *lua.LState) int {
-	if m.device == nil {
-		L.Push(lua.LFalse)
-		L.Push(lua.LString("no device connected"))
+	if !m.checkDevice(L) {
 		return 2
 	}
-
-	// key := L.CheckInt(1) - Not needed for clear operation
-
-	// In real implementation, this would call device.SetKeyColor with black
-
+	key := L.CheckInt(1)
+	if err := m.device.SetKeyColor(key, color.RGBA{A: 255}); err != nil {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
 	L.Push(lua.LTrue)
 	L.Push(lua.LNil)
 	return 2
 }
 
+// sdReset resets the deck to its factory default state.
+// Lua: streamdeck.reset() -> ok, err
 func (m *StreamDeckModule) sdReset(L *lua.LState) int {
-	if m.device == nil {
-		L.Push(lua.LFalse)
-		L.Push(lua.LString("no device connected"))
+	if !m.checkDevice(L) {
 		return 2
 	}
-
-	// In real implementation, this would call device.Reset
-
+	if err := m.device.Reset(); err != nil {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
 	L.Push(lua.LTrue)
 	L.Push(lua.LNil)
 	return 2
 }
 
+// sdGetModel returns the device model name.
+// Lua: streamdeck.get_model() -> string
 func (m *StreamDeckModule) sdGetModel(L *lua.LState) int {
 	if m.device == nil {
 		L.Push(lua.LNil)
 		return 1
 	}
-
-	// In real implementation, this would return device.Model.Name
-	L.Push(lua.LString("Stream Deck"))
+	L.Push(lua.LString(m.device.Model.Name))
 	return 1
 }
 
+// sdGetKeys returns the total number of keys on the device.
+// Lua: streamdeck.get_keys() -> number
 func (m *StreamDeckModule) sdGetKeys(L *lua.LState) int {
 	if m.device == nil {
 		L.Push(lua.LNumber(0))
 		return 1
 	}
-
-	// In real implementation, this would return device.Model.Keys
-	L.Push(lua.LNumber(15))
+	L.Push(lua.LNumber(m.device.Model.Keys))
 	return 1
 }
 
+// sdGetLayout returns the column and row counts of the key grid.
+// Lua: streamdeck.get_layout() -> cols, rows
 func (m *StreamDeckModule) sdGetLayout(L *lua.LState) int {
 	if m.device == nil {
 		L.Push(lua.LNumber(0))
 		L.Push(lua.LNumber(0))
 		return 2
 	}
-
-	// In real implementation, this would return device.Model.Cols, device.Model.Rows
-	L.Push(lua.LNumber(5))
-	L.Push(lua.LNumber(3))
+	L.Push(lua.LNumber(m.device.Model.Cols))
+	L.Push(lua.LNumber(m.device.Model.Rows))
 	return 2
 }

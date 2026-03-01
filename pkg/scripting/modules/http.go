@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"crypto/tls"
 	"io"
 	"net/http"
 	"strings"
@@ -10,11 +11,28 @@ import (
 )
 
 // HTTPModule provides HTTP functionality.
-type HTTPModule struct{}
+type HTTPModule struct {
+	client *http.Client
+}
 
 // NewHTTPModule creates a new HTTP module.
 func NewHTTPModule() *HTTPModule {
-	return &HTTPModule{}
+	// Create optimized HTTP client
+	transport := &http.Transport{
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     30 * time.Second,
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: false},
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   15 * time.Second, // Reduced from 30s for better responsiveness
+	}
+
+	return &HTTPModule{
+		client: client,
+	}
 }
 
 // Loader returns the Lua module loader function.
@@ -31,8 +49,7 @@ func (m *HTTPModule) Loader(L *lua.LState) int {
 func (m *HTTPModule) httpGet(L *lua.LState) int {
 	url := L.CheckString(1)
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := m.client.Get(url)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -57,8 +74,7 @@ func (m *HTTPModule) httpPost(L *lua.LState) int {
 	contentType := L.CheckString(2)
 	body := L.CheckString(3)
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(url, contentType, strings.NewReader(body))
+	resp, err := m.client.Post(url, contentType, strings.NewReader(body))
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -97,8 +113,7 @@ func (m *HTTPModule) httpRequest(L *lua.LState) int {
 		})
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := m.client.Do(req)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))

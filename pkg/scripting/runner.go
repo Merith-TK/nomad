@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/merith-tk/nomad/pkg/lualib"
 	"github.com/merith-tk/nomad/pkg/scripting/modules"
 	"github.com/merith-tk/nomad/pkg/streamdeck"
 	lua "github.com/yuin/gopher-lua"
@@ -41,6 +42,12 @@ type ScriptRunner struct {
 	// Lua state (persistent for shared state)
 	L     *lua.LState
 	state *lua.LTable // Shared state table
+
+	// Table pool for reducing allocations
+	tablePool sync.Pool
+
+	// Module table returned by script (always required)
+	module *lua.LTable
 
 	// Function availability
 	hasBackground bool
@@ -76,28 +83,44 @@ func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string
 		device:        dev,
 		configDir:     configDir,
 		restartPolicy: RestartAlways,
+		tablePool: sync.Pool{
+			New: func() interface{} {
+				return &lua.LTable{}
+			},
+		},
 	}
 
 	// Create Lua state
 	r.L = lua.NewState()
 
-	// Create shared state table
+	// Create shared state table (persists across all function calls)
 	r.state = r.L.NewTable()
 	r.L.SetGlobal("state", r.state)
 
-	// Register modules
+	// Register modules and set globals
 	r.registerModules()
 
-	// Load the script (defines functions)
+	// Load the script (defines functions or returns module)
 	if err := r.L.DoFile(scriptPath); err != nil {
 		r.L.Close()
 		return nil, fmt.Errorf("failed to load script %s: %w", scriptPath, err)
 	}
 
-	// Check which functions are defined
-	r.hasBackground = r.L.GetGlobal("background").Type() == lua.LTFunction
-	r.hasPassive = r.L.GetGlobal("passive").Type() == lua.LTFunction
-	r.hasTrigger = r.L.GetGlobal("trigger").Type() == lua.LTFunction
+	// Script must return a module table
+	result := r.L.Get(-1)
+	if result.Type() != lua.LTTable {
+		r.L.Close()
+		return nil, fmt.Errorf("script %s must return a table (got %s)", filepath.Base(scriptPath), result.Type())
+	}
+	r.L.Pop(1)
+	r.module = result.(*lua.LTable)
+
+	// Detect available functions
+	r.hasBackground = r.module.RawGetString("background").Type() == lua.LTFunction
+	r.hasPassive = r.module.RawGetString("passive").Type() == lua.LTFunction
+	r.hasTrigger = r.module.RawGetString("trigger").Type() == lua.LTFunction
+
+	fmt.Printf("[*] Loaded %s (bg=%v passive=%v trigger=%v)\n", r.ScriptName, r.hasBackground, r.hasPassive, r.hasTrigger)
 
 	// Check for restart policy setting
 	policy := r.L.GetGlobal("RESTART_POLICY")
@@ -117,17 +140,25 @@ func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string
 
 // registerModules adds all available modules to the Lua state.
 func (r *ScriptRunner) registerModules() {
-	// Create module instances
+	// Device/system modules (need runtime context)
 	shellMod := modules.NewShellModule()
 	httpMod := modules.NewHTTPModule()
-	systemMod := modules.NewSystemModule()
+	systemMod := modules.NewSystemModule(r.requestRefresh)
 	sdMod := modules.NewStreamDeckModule(r.device)
+	fileMod := modules.NewFileModule()
 
-	// Register modules
 	r.L.PreloadModule("shell", shellMod.Loader)
 	r.L.PreloadModule("http", httpMod.Loader)
 	r.L.PreloadModule("system", systemMod.Loader)
 	r.L.PreloadModule("streamdeck", sdMod.Loader)
+	r.L.PreloadModule("file", fileMod.Loader)
+
+	// Go-native stdlib (lualib) - zero disk I/O on require()
+	lualib.RegisterUtils(r.L)
+	lualib.RegisterStrings(r.L)
+	lualib.RegisterJSON(r.L)
+	lualib.RegisterTime(r.L)
+	lualib.RegisterLog(r.L)
 
 	// Set globals
 	r.L.SetGlobal("SCRIPT_PATH", lua.LString(r.ScriptPath))
@@ -151,6 +182,20 @@ func (r *ScriptRunner) requestRefresh() {
 	if cb != nil {
 		cb()
 	}
+}
+
+// getTable gets a table from the pool.
+func (r *ScriptRunner) getTable() *lua.LTable {
+	return r.tablePool.Get().(*lua.LTable)
+}
+
+// putTable returns a table to the pool after clearing it.
+func (r *ScriptRunner) putTable(tbl *lua.LTable) {
+	// Clear all keys from the table
+	tbl.ForEach(func(key, value lua.LValue) {
+		tbl.RawSet(key, lua.LNil)
+	})
+	r.tablePool.Put(tbl)
 }
 
 // HasBackground returns true if script defines background().
@@ -291,7 +336,8 @@ func (r *ScriptRunner) runBackgroundCoroutine() (bool, int, error) {
 	r.mu.Lock()
 
 	// Get background function
-	fn := r.L.GetGlobal("background")
+	fn := r.module.RawGetString("background")
+
 	if fn.Type() != lua.LTFunction {
 		r.mu.Unlock()
 		return true, 0, nil
@@ -353,12 +399,12 @@ func (r *ScriptRunner) runBackgroundCoroutine() (bool, int, error) {
 	return false, sleepMs, nil
 }
 
-// callBackground executes the background function (legacy, used if no coroutine).
+// callBackground executes the background function directly (no coroutine).
 func (r *ScriptRunner) callBackground() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	fn := r.L.GetGlobal("background")
+	fn := r.module.RawGetString("background")
 	if fn.Type() != lua.LTFunction {
 		return nil
 	}
@@ -382,7 +428,7 @@ func (r *ScriptRunner) StopBackground() {
 	r.mu.Unlock()
 }
 
-// RunPassive calls passive(key, state) and returns appearance.
+// RunPassive calls passive(key, state) or module.passive(key, state) and returns appearance.
 // Uses TryLock to avoid blocking if background is running.
 func (r *ScriptRunner) RunPassive(keyIndex int) (*KeyAppearance, error) {
 	// Try to acquire lock - if background is holding it, skip this update
@@ -395,7 +441,7 @@ func (r *ScriptRunner) RunPassive(keyIndex int) (*KeyAppearance, error) {
 		return nil, nil
 	}
 
-	fn := r.L.GetGlobal("passive")
+	fn := r.module.RawGetString("passive")
 	if fn.Type() != lua.LTFunction {
 		return nil, nil
 	}
@@ -465,7 +511,7 @@ func (r *ScriptRunner) RunPassive(keyIndex int) (*KeyAppearance, error) {
 	return appearance, nil
 }
 
-// RunTrigger calls trigger(state).
+// RunTrigger calls trigger(state) or module.trigger(state).
 func (r *ScriptRunner) RunTrigger() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -474,7 +520,7 @@ func (r *ScriptRunner) RunTrigger() error {
 		return nil
 	}
 
-	fn := r.L.GetGlobal("trigger")
+	fn := r.module.RawGetString("trigger")
 	if fn.Type() != lua.LTFunction {
 		return nil
 	}

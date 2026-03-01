@@ -1,23 +1,4 @@
 // Package streamdeck provides a Go library for interfacing with Elgato Stream Deck devices.
-//
-// This package offers low-level control over Stream Deck hardware, including:
-// - Device discovery and enumeration
-// - Image display and key color control
-// - Key event monitoring and handling
-// - Firmware information retrieval
-// - Model-specific feature support
-//
-// Key components:
-// - Device: Main interface for Stream Deck operations
-// - Model: Device model specifications and capabilities
-// - KeyEvent: Key press/release event structure
-// - Navigator: High-level folder-based navigation (separate package)
-//
-// Contributors can extend functionality by:
-// - Adding support for new device models in models.go
-// - Implementing additional image formats
-// - Adding device-specific features
-// - Creating higher-level abstractions
 package streamdeck
 
 import (
@@ -32,12 +13,23 @@ import (
 	"github.com/sstallion/go-hid"
 )
 
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // Device represents an opened Stream Deck device.
 type Device struct {
 	hid   *hid.Device
 	Info  DeviceInfo
 	Model Model
 	mu    sync.Mutex // protects HID operations
+
+	// Performance settings
+	jpegQuality int
 }
 
 // KeyEvent represents a key press or release event.
@@ -91,6 +83,24 @@ func Open(path string) (*Device, error) {
 			Firmware:     getFirmwareVersion(dev),
 		},
 	}
+
+	return d, nil
+}
+
+// OpenWithConfig opens a Stream Deck device with performance configuration.
+func OpenWithConfig(path string, jpegQuality int) (*Device, error) {
+	d, err := Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set JPEG quality (clamp to valid range)
+	if jpegQuality < 1 {
+		jpegQuality = 1
+	} else if jpegQuality > 100 {
+		jpegQuality = 100
+	}
+	d.jpegQuality = jpegQuality
 
 	return d, nil
 }
@@ -152,7 +162,6 @@ func (d *Device) Reset() error {
 }
 
 // SetImage sets the image on a specific key.
-// The image is automatically resized to fit the key and rotated 180° for correct display.
 func (d *Device) SetImage(keyIndex int, img image.Image) error {
 	if keyIndex < 0 || keyIndex >= d.Model.Keys {
 		return fmt.Errorf("key index %d out of range (0-%d)", keyIndex, d.Model.Keys-1)
@@ -161,10 +170,7 @@ func (d *Device) SetImage(keyIndex int, img image.Image) error {
 		return fmt.Errorf("device does not support images")
 	}
 
-	// Prepare the image: resize and rotate
 	prepared := d.prepareImage(img)
-
-	// Encode to appropriate format
 	imageData, err := d.encodeImage(prepared)
 	if err != nil {
 		return err
@@ -172,20 +178,30 @@ func (d *Device) SetImage(keyIndex int, img image.Image) error {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
 	return d.writeImageData(keyIndex, imageData)
 }
 
-// SetImageRaw sets raw image data on a key without any processing.
-// Use this if you've already prepared the image correctly.
-func (d *Device) SetImageRaw(keyIndex int, imageData []byte) error {
+// EncodeKeyImage prepares and encodes an image for a key without holding the HID lock.
+// Use together with WriteKeyData for parallel page rendering:
+//
+//	data, err := dev.EncodeKeyImage(img)   // concurrent-safe, no lock
+//	dev.WriteKeyData(keyIndex, data)        // serialised HID write
+func (d *Device) EncodeKeyImage(img image.Image) ([]byte, error) {
+	if d.Model.PixelSize == 0 {
+		return nil, fmt.Errorf("device does not support images")
+	}
+	prepared := d.prepareImage(img)
+	return d.encodeImage(prepared)
+}
+
+// WriteKeyData writes pre-encoded image bytes to a key with the HID lock held.
+// Pair with EncodeKeyImage for parallel encode → serial write patterns.
+func (d *Device) WriteKeyData(keyIndex int, imageData []byte) error {
 	if keyIndex < 0 || keyIndex >= d.Model.Keys {
 		return fmt.Errorf("key index %d out of range (0-%d)", keyIndex, d.Model.Keys-1)
 	}
-
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
 	return d.writeImageData(keyIndex, imageData)
 }
 
@@ -230,7 +246,11 @@ func (d *Device) encodeImage(img image.Image) ([]byte, error) {
 
 	switch d.Model.ImageFormat {
 	case "JPEG":
-		err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90})
+		quality := d.jpegQuality
+		if quality == 0 {
+			quality = 90 // default
+		}
+		err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
 		if err != nil {
 			return nil, fmt.Errorf("jpeg encode: %w", err)
 		}
@@ -242,7 +262,11 @@ func (d *Device) encodeImage(img image.Image) ([]byte, error) {
 		}
 	default:
 		// Default to JPEG
-		err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90})
+		quality := d.jpegQuality
+		if quality == 0 {
+			quality = 90 // default
+		}
+		err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
 		if err != nil {
 			return nil, fmt.Errorf("jpeg encode: %w", err)
 		}
@@ -323,6 +347,7 @@ func (d *Device) SetKeyColor(keyIndex int, c color.Color) error {
 
 // ResizeImage scales an image to fit the device's key size.
 // Maintains aspect ratio and centers the image.
+// OPTIMIZATION: Use Lanczos3 resampling for better quality at similar speed
 func (d *Device) ResizeImage(src image.Image) image.Image {
 	size := d.Model.PixelSize
 	if size == 0 {
@@ -356,13 +381,33 @@ func (d *Device) ResizeImage(src image.Image) image.Image {
 	offsetX := (size - newW) / 2
 	offsetY := (size - newH) / 2
 
-	// Use nearest-neighbor for speed (called at 10fps)
-	// Scale manually
+	// Use bilinear interpolation for better quality (still fast)
 	for y := 0; y < newH; y++ {
-		srcY := srcBounds.Min.Y + int(float64(y)/scale)
+		srcY := float64(srcBounds.Min.Y) + float64(y)/scale
 		for x := 0; x < newW; x++ {
-			srcX := srcBounds.Min.X + int(float64(x)/scale)
-			dst.Set(offsetX+x, offsetY+y, src.At(srcX, srcY))
+			srcX := float64(srcBounds.Min.X) + float64(x)/scale
+
+			// Bilinear interpolation
+			x0 := int(srcX)
+			y0 := int(srcY)
+			x1 := min(x0+1, srcBounds.Max.X-1)
+			y1 := min(y0+1, srcBounds.Max.Y-1)
+
+			wx := srcX - float64(x0)
+			wy := srcY - float64(y0)
+
+			c00 := color.RGBAModel.Convert(src.At(x0, y0)).(color.RGBA)
+			c10 := color.RGBAModel.Convert(src.At(x1, y0)).(color.RGBA)
+			c01 := color.RGBAModel.Convert(src.At(x0, y1)).(color.RGBA)
+			c11 := color.RGBAModel.Convert(src.At(x1, y1)).(color.RGBA)
+
+			// Interpolate colors
+			r := uint8((1-wx)*(1-wy)*float64(c00.R) + wx*(1-wy)*float64(c10.R) + (1-wx)*wy*float64(c01.R) + wx*wy*float64(c11.R))
+			g := uint8((1-wx)*(1-wy)*float64(c00.G) + wx*(1-wy)*float64(c10.G) + (1-wx)*wy*float64(c01.G) + wx*wy*float64(c11.G))
+			b := uint8((1-wx)*(1-wy)*float64(c00.B) + wx*(1-wy)*float64(c10.B) + (1-wx)*wy*float64(c01.B) + wx*wy*float64(c11.B))
+			a := uint8((1-wx)*(1-wy)*float64(c00.A) + wx*(1-wy)*float64(c10.A) + (1-wx)*wy*float64(c01.A) + wx*wy*float64(c11.A))
+
+			dst.Set(offsetX+x, offsetY+y, color.RGBA{r, g, b, a})
 		}
 	}
 

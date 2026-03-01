@@ -3,17 +3,19 @@ package modules
 import (
 	"os"
 	"runtime"
-	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
-// SystemModule provides system utilities.
-type SystemModule struct{}
+// SystemModule provides OS/system utilities to Lua scripts.
+type SystemModule struct {
+	onRefresh func() // called when script requests a display refresh
+}
 
 // NewSystemModule creates a new system module.
-func NewSystemModule() *SystemModule {
-	return &SystemModule{}
+// onRefresh is called when a script invokes system.refresh(); pass nil to disable.
+func NewSystemModule(onRefresh func()) *SystemModule {
+	return &SystemModule{onRefresh: onRefresh}
 }
 
 // Loader returns the Lua module loader function.
@@ -23,17 +25,21 @@ func (m *SystemModule) Loader(L *lua.LState) int {
 		"env":      m.systemEnv,
 		"sleep":    m.systemSleep,
 		"hostname": m.systemHostname,
-		"refresh":  m.systemRefresh, // Trigger display refresh
+		"refresh":  m.systemRefresh,
 	})
 	L.Push(mod)
 	return 1
 }
 
+// systemOS returns the current operating system name (e.g. "linux", "windows").
+// Lua: system.os() -> string
 func (m *SystemModule) systemOS(L *lua.LState) int {
 	L.Push(lua.LString(runtime.GOOS))
 	return 1
 }
 
+// systemEnv returns an environment variable value, or nil if unset.
+// Lua: system.env(key) -> string|nil
 func (m *SystemModule) systemEnv(L *lua.LState) int {
 	key := L.CheckString(1)
 	value := os.Getenv(key)
@@ -45,30 +51,19 @@ func (m *SystemModule) systemEnv(L *lua.LState) int {
 	return 1
 }
 
+// systemSleep sleeps for ms milliseconds.
+// In background scripts this yields the coroutine so other work can proceed.
+// In trigger/passive callbacks it blocks briefly (capped at 500ms).
+// Lua: system.sleep(ms)
 func (m *SystemModule) systemSleep(L *lua.LState) int {
 	ms := L.CheckInt(1)
-
-	// Check if we're in a coroutine (background thread)
-	// If so, yield to let Go handle the sleep without blocking
-	// Note: Don't use mutex here - we may already be holding it from runBackgroundCoroutine
-	// Direct pointer compare is safe since bgThread is only set while holding mutex
-	// This is a simplified version - in practice, we'd need access to the runner's state
-	isCoroutine := false // TODO: Pass runner context or find another way
-
-	if isCoroutine {
-		// Yield with sleep duration - Go will wait and resume
-		return L.Yield(lua.LNumber(ms))
-	}
-
-	// Not in coroutine (trigger/passive) - do a brief sleep
-	// Keep it short to avoid blocking
-	if ms > 100 {
-		ms = 100 // Cap at 100ms for non-coroutine calls
-	}
-	time.Sleep(time.Duration(ms) * time.Millisecond)
-	return 0
+	// Yield to Go scheduler; the background loop in runner.go reads the sleep
+	// duration from the coroutine's yield value and waits via time.After.
+	return L.Yield(lua.LNumber(ms))
 }
 
+// systemHostname returns the machine hostname.
+// Lua: system.hostname() -> string|nil
 func (m *SystemModule) systemHostname(L *lua.LState) int {
 	name, err := os.Hostname()
 	if err != nil {
@@ -79,9 +74,11 @@ func (m *SystemModule) systemHostname(L *lua.LState) int {
 	return 1
 }
 
+// systemRefresh requests an immediate display refresh from the runner.
+// Lua: system.refresh()
 func (m *SystemModule) systemRefresh(L *lua.LState) int {
-	// Request a display refresh (non-blocking)
-	// This would need access to the runner's refresh callback
-	// For now, this is a placeholder
+	if m.onRefresh != nil {
+		m.onRefresh()
+	}
 	return 0
 }
