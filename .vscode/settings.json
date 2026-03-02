@@ -1,6 +1,4 @@
 {
-
-    "openscad.launchPath": "/usr/bin/openscad",
     "files.associations": {
         "*.scad": "scad"
     },

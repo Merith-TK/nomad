@@ -24,6 +24,15 @@ cylinder_length = 20.0;             // Length along X (mm)
 cuboid_2_size = [20.0, 75.0, 6.0];  // [X, Y, Z] (mm)
 cuboid_2_pos = [0.0, -15.0, 0.0];   // [X, Y, Z] (mm) - cuts lower 6mm across shape
 
+// Wedge (additive shape)
+// Upside down: sloped face on the underside, nose pointing toward +X
+wedge_cutout_pos = [7.0, 78.5, 6.0];     // [X, Y, Z] (mm)
+wedge_cutout_rot = [90.0, 5.54, 0.0];      // [X, Y, Z] rotation (degrees)
+wedge_cutout_size = [60.0, 112, 15.0];   // [X, Y, Z] (mm)
+wedge_edge_radius = 1.5;                 // Rounded edge radius on all wedge edges (mm)
+rounding_fn = $preview ? 10 : 20;        // Sphere smoothness for full-edge rounding
+show_wedge_cutout_preview = true;        // Show/hide wedge overlay for positioning
+
 // ============================================
 // RENDER QUALITY
 // ============================================
@@ -34,6 +43,30 @@ $fn = $preview ? preview_fn : export_fn;
 // ============================================
 // COMPOSITE CABLE CUTOUT
 // ============================================
+module wedge_cutout_volume() {
+    wedge_x = wedge_cutout_size[0];
+    wedge_y = wedge_cutout_size[1];
+    wedge_z = wedge_cutout_size[2];
+    safe_wedge_radius = min(wedge_edge_radius, wedge_x / 2 - 0.01, wedge_y / 2 - 0.01, wedge_z / 2 - 0.01);
+    core_x = wedge_x - (2 * safe_wedge_radius);
+    core_y = wedge_y - (2 * safe_wedge_radius);
+    core_z = wedge_z - (2 * safe_wedge_radius);
+
+    translate(wedge_cutout_pos)
+        rotate(wedge_cutout_rot)
+            minkowski() {
+                translate([safe_wedge_radius, safe_wedge_radius, safe_wedge_radius])
+                    linear_extrude(height=core_y, center=false)
+                        polygon([
+                            [0, 0],
+                            [0, core_z],
+                            [core_x, core_z]
+                        ]);
+
+                sphere(r=safe_wedge_radius, $fn=rounding_fn);
+            }
+}
+
 module cable_cutout() {
     difference() {
         union() {
@@ -56,6 +89,8 @@ module cable_cutout() {
             ])
                 rotate([0, 90, 0])
                     cylinder(h=cylinder_length, d=cylinder_dia, center=false);
+
+            wedge_cutout_volume();
         }
 
         translate(cuboid_2_pos)
@@ -67,3 +102,8 @@ module cable_cutout() {
 // MAIN RENDER
 // ============================================
 cable_cutout();
+
+if ($preview && show_wedge_cutout_preview) {
+    #color([1.0, 0.5, 0.1, 0.6])
+        wedge_cutout_volume();
+}

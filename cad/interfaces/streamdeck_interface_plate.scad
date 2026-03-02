@@ -10,6 +10,7 @@
 // IMPORTS
 // ============================================
 use <../module_mount_slim.scad>
+use <cable_cutout.scad>
 
 // Convert `.reference/streamdeck.mk2.stp` to `.reference/streamdeck.mk2.stl`
 // before enabling `use_reference_cutout`.
@@ -54,6 +55,15 @@ wedge_cutout_1_rot = [0, 0, 0];      // [X, Y, Z] rotation (degrees)
 wedge_cutout_1_width = 125.0;        // Width of +X-facing side (mm)
 wedge_cutout_1_length = 127.0;       // Nose length toward -X (mm)
 wedge_cutout_1_height = 14.0;        // Height (mm)
+
+// ============================================
+// CABLE CUTOUT SETTINGS
+// ============================================
+use_cable_cutout = true;             // Apply cable cutout to plate geometry
+show_cable_cutout_preview = true;    // Show/hide cable cutout preview
+cable_cutout_pos = [-46.5, -22.5, 0];     // [X, Y, Z] placement (mm)
+cable_cutout_rot = [0, 0, 0];        // [X, Y, Z] rotation (degrees)
+cable_cutout_scale = [1.0, 1.0, 1.0];// [X, Y, Z] scale
 
 // ============================================
 // MOUNTPLATE WING GHOST PREVIEW
@@ -126,26 +136,25 @@ module wedge_cutout_1_volume() {
     width = wedge_cutout_1_width;
     length = wedge_cutout_1_length;
     height = wedge_cutout_1_height;
+    e = 0.01; // epsilon for degenerate nose edge
 
     translate(wedge_cutout_1_pos)
         rotate(wedge_cutout_1_rot)
-            polyhedron(
-                points=[
-                    [0, -width / 2, 0],
-                    [0, width / 2, 0],
-                    [0, width / 2, height],
-                    [0, -width / 2, height],
-                    [-length, -width / 2, 0],
-                    [-length, width / 2, 0]
-                ],
-                faces=[
-                    [0, 1, 2, 3],
-                    [0, 4, 5, 1],
-                    [0, 3, 4],
-                    [1, 5, 2],
-                    [3, 2, 5, 4]
-                ]
-            );
+            hull() {
+                // Back face: full-height rectangle at X=0
+                translate([0, -width / 2, 0])
+                    cube([e, width, height]);
+                // Nose edge at X=-length: zero-height sliver
+                translate([-length, -width / 2, 0])
+                    cube([e, width, e]);
+            }
+}
+
+module cable_cutout_volume() {
+    translate(cable_cutout_pos)
+        rotate(cable_cutout_rot)
+            scale(cable_cutout_scale)
+                cable_cutout();
 }
 
 module mounting_holes() {
@@ -173,6 +182,10 @@ module streamdeck_interface_plate() {
 
         if (use_wedge_cutout_1) {
             wedge_cutout_1_volume();
+        }
+
+        if (use_cable_cutout) {
+            cable_cutout_volume();
         }
 
         if (add_mounting_holes) {
@@ -205,4 +218,10 @@ if ($preview && show_wedge_cutout_1_preview) {
     #color([1.0, 0.8, 0.2, 0.5])
         rotate(plate_rot)
             wedge_cutout_1_volume();
+}
+
+if ($preview && show_cable_cutout_preview) {
+    #color([1.0, 0.2, 0.8, 0.5])
+        rotate(plate_rot)
+            cable_cutout_volume();
 }
