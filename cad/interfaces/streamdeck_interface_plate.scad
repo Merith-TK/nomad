@@ -45,6 +45,17 @@ cutout_clearance = 0.35;             // Additional XY clearance around cutout (m
 cutout_apply_z = -1;               // Z used for boolean cut through the plate (mm)
 
 // ============================================
+// WEDGE CUTOUT 1 SETTINGS
+// ============================================
+use_wedge_cutout_1 = true;           // Apply wedge cutout 1 to plate geometry
+show_wedge_cutout_1_preview = true;  // Show/hide wedge cutout 1 preview
+wedge_cutout_1_pos = [63.5, 0, -1.0];   // [X, Y, Z] placement (mm)
+wedge_cutout_1_rot = [0, 0, 0];      // [X, Y, Z] rotation (degrees)
+wedge_cutout_1_width = 125.0;        // Width of +X-facing side (mm)
+wedge_cutout_1_length = 127.0;       // Nose length toward -X (mm)
+wedge_cutout_1_height = 14.0;        // Height (mm)
+
+// ============================================
 // MOUNTPLATE WING GHOST PREVIEW
 // ============================================
 show_mountplate_preview = true;      // Show/hide mountplate wing preview
@@ -62,7 +73,9 @@ mount_hole_inset = [10.0, 10.0];     // [X, Y] inset from plate edges (mm)
 // ============================================
 // RENDER QUALITY
 // ============================================
-$fn = 64;
+preview_fn = 20;   // Faster viewport interaction
+export_fn = 48;    // Better quality for STL export
+$fn = $preview ? preview_fn : export_fn;
 
 // ============================================
 // HELPER MODULES
@@ -109,6 +122,32 @@ module mountplate_wing_reference_preview() {
     module_mount();
 }
 
+module wedge_cutout_1_volume() {
+    width = wedge_cutout_1_width;
+    length = wedge_cutout_1_length;
+    height = wedge_cutout_1_height;
+
+    translate(wedge_cutout_1_pos)
+        rotate(wedge_cutout_1_rot)
+            polyhedron(
+                points=[
+                    [0, -width / 2, 0],
+                    [0, width / 2, 0],
+                    [0, width / 2, height],
+                    [0, -width / 2, height],
+                    [-length, -width / 2, 0],
+                    [-length, width / 2, 0]
+                ],
+                faces=[
+                    [0, 1, 2, 3],
+                    [0, 4, 5, 1],
+                    [0, 3, 4],
+                    [1, 5, 2],
+                    [3, 2, 5, 4]
+                ]
+            );
+}
+
 module mounting_holes() {
     hole_x = plate_size[0] / 2 - mount_hole_inset[0];
     hole_y = plate_size[1] / 2 - mount_hole_inset[1];
@@ -130,6 +169,10 @@ module streamdeck_interface_plate() {
 
         if (use_reference_cutout) {
             streamdeck_cutout_volume();
+        }
+
+        if (use_wedge_cutout_1) {
+            wedge_cutout_1_volume();
         }
 
         if (add_mounting_holes) {
@@ -156,4 +199,10 @@ if ($preview && show_mountplate_preview) {
             rotate(mountplate_wing_rot)
                 scale(mountplate_wing_scale)
                     mountplate_wing_reference_preview();
+}
+
+if ($preview && show_wedge_cutout_1_preview) {
+    #color([1.0, 0.8, 0.2, 0.5])
+        rotate(plate_rot)
+            wedge_cutout_1_volume();
 }
