@@ -302,11 +302,16 @@ func (a *App) handleKeyEvent(event streamdeck.KeyEvent) error {
 		fmt.Printf("[*] Action triggered: %s\n", item.Name)
 		if item.Script != "" {
 			fmt.Printf("    Script: %s\n", item.Script)
-			if err := a.scriptMgr.TriggerScript(item.Script); err != nil {
-				log.Printf("Script error: %v", err)
-			}
-			// Refresh only the triggered key instead of redrawing the whole page
-			a.scriptMgr.RefreshScript(item.Script)
+			// Run trigger asynchronously so the event loop never blocks waiting
+			// for a slow trigger function (HTTP, shell, sleep, etc.)
+			scriptPath := item.Script
+			go func() {
+				if err := a.scriptMgr.TriggerScript(scriptPath); err != nil {
+					log.Printf("Script error: %v", err)
+				}
+				// Refresh only the triggered key instead of redrawing the whole page
+				a.scriptMgr.RefreshScript(scriptPath)
+			}()
 		}
 	}
 

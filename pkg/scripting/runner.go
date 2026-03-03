@@ -65,7 +65,8 @@ type KeyAppearance struct {
 
 // ScriptRunner manages a single Lua script's lifecycle.
 type ScriptRunner struct {
-	mu sync.RWMutex
+	mu    sync.RWMutex
+	luaMu sync.Mutex // serialises ALL operations on r.L (PCall, Resume, NewThread)
 
 	// Script info
 	ScriptPath string
@@ -393,7 +394,11 @@ func (r *ScriptRunner) runBackgroundCoroutine() (bool, int, error) {
 		resumeArgs = []lua.LValue{nil}
 	}
 
-	r.mu.Unlock() // Release mutex during Lua execution
+	r.mu.Unlock() // Release struct-field mutex before Lua execution
+
+	// Acquire the Lua VM lock for the duration of Resume so that RunTrigger /
+	// RunPassive cannot enter the same LState concurrently.
+	r.luaMu.Lock()
 
 	// Resume the coroutine (this may take time)
 	var status lua.ResumeState
@@ -407,6 +412,8 @@ func (r *ScriptRunner) runBackgroundCoroutine() (bool, int, error) {
 		// Subsequent resume - no function needed
 		status, err, values = r.L.Resume(r.bgThread, nil)
 	}
+
+	r.luaMu.Unlock() // Release Lua VM lock before re-acquiring struct mutex
 
 	r.mu.Lock() // Re-acquire mutex for state updates
 	defer r.mu.Unlock()
@@ -461,13 +468,16 @@ func (r *ScriptRunner) StopBackground() {
 }
 
 // RunPassive calls passive(key, state) or module.passive(key, state) and returns appearance.
-// Uses TryLock to avoid blocking if background is running.
+// Uses TryLock on luaMu to avoid blocking if background or trigger is using the Lua VM.
 func (r *ScriptRunner) RunPassive(keyIndex int) (*KeyAppearance, error) {
-	// Try to acquire lock - if background is holding it, skip this update
-	if !r.mu.TryLock() {
+	// Try to acquire the Lua VM lock - if it is held by background/trigger, skip this tick
+	if !r.luaMu.TryLock() {
 		return nil, nil // Skip, try again next tick
 	}
-	defer r.mu.Unlock()
+	defer r.luaMu.Unlock()
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
 	if !r.hasPassive {
 		return nil, nil
@@ -545,12 +555,16 @@ func (r *ScriptRunner) RunPassive(keyIndex int) (*KeyAppearance, error) {
 
 // RunTrigger calls trigger(state) or module.trigger(state).
 func (r *ScriptRunner) RunTrigger() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	hasTrigger := r.hasTrigger
+	r.mu.RUnlock()
 
-	if !r.hasTrigger {
+	if !hasTrigger {
 		return nil
 	}
+
+	r.luaMu.Lock()
+	defer r.luaMu.Unlock()
 
 	fn := r.module.RawGetString("trigger")
 	if fn.Type() != lua.LTFunction {
