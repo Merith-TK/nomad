@@ -227,7 +227,7 @@ func (m *ScriptManager) passiveLoop() {
 	}
 }
 
-// runPassiveUpdate calls passive() on all visible scripts.
+// runPassiveUpdate calls passive() on all visible scripts concurrently.
 func (m *ScriptManager) runPassiveUpdate() {
 	m.mu.RLock()
 	visible := make(map[string]int)
@@ -240,25 +240,32 @@ func (m *ScriptManager) runPassiveUpdate() {
 		return
 	}
 
+	var wg sync.WaitGroup
 	for scriptPath, keyIndex := range visible {
-		m.mu.RLock()
-		runner := m.runners[scriptPath]
-		m.mu.RUnlock()
+		wg.Add(1)
+		go func(scriptPath string, keyIndex int) {
+			defer wg.Done()
 
-		if runner == nil || !runner.HasPassive() {
-			continue
-		}
+			m.mu.RLock()
+			runner := m.runners[scriptPath]
+			m.mu.RUnlock()
 
-		appearance, err := runner.RunPassive(keyIndex)
-		if err != nil {
-			continue
-		}
+			if runner == nil || !runner.HasPassive() {
+				return
+			}
 
-		if appearance != nil {
-			// Batch the update instead of calling callback immediately
-			m.batchUpdate(scriptPath, appearance)
-		}
+			appearance, err := runner.RunPassive(keyIndex)
+			if err != nil {
+				return
+			}
+
+			if appearance != nil {
+				// Batch the update instead of calling callback immediately
+				m.batchUpdate(scriptPath, appearance)
+			}
+		}(scriptPath, keyIndex)
 	}
+	wg.Wait()
 }
 
 // batchUpdate adds an update to the batch queue.
