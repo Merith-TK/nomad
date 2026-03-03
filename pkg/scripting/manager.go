@@ -32,7 +32,7 @@ import (
 
 const (
 	// DefaultPassiveFPS is the default rate at which passive functions are called.
-	DefaultPassiveFPS = 2
+	DefaultPassiveFPS = 10
 )
 
 // ScriptManager coordinates all script runners and the passive loop.

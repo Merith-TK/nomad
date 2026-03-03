@@ -8,7 +8,9 @@ require (
 	golang.org/x/image v0.36.0
 )
 
+require github.com/Merith-TK/utils v0.0.0-20250915201218-d2a29b353f31
+
 require (
-	golang.org/x/sys v0.8.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1
 )
