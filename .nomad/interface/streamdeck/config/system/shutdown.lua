@@ -33,7 +33,11 @@ function script.trigger(state)
         state.confirming = false
         print("Shutdown confirmed!")
         -- Uncomment to enable:
-        -- shell.exec("shutdown /s /t 60 /c \"Shutdown initiated from Stream Deck\"")
+        if system.os() == "windows" then
+            shell.exec("shutdown /s /t 60 /c \"Shutdown initiated from Stream Deck\"")
+        else
+            shell.exec("shutdown -h now")
+        end
     else
         state.confirming   = true
         state.confirm_time = os.time()

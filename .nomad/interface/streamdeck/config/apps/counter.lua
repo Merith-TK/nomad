@@ -5,13 +5,13 @@ local script = {}
 
 local counter = 0
 
-function script.background(state)
-    while true do
-        counter = counter + 1
-        log.debug("counter: " .. counter)
-        system.sleep(100)  -- increment every 100ms
-    end
-end
+-- function script.background(state)
+--     while true do
+--         counter = counter + 1
+--         log.debug("counter: " .. counter)
+--         system.sleep(100)  -- increment every 100ms
+--     end
+-- end
 
 function script.passive(key, state)
     return {
