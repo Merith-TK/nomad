@@ -96,6 +96,13 @@ func (n *Navigator) calculateKeyLayout() {
 	}
 }
 
+// GetContentKeys returns the key indices available for page content.
+func (n *Navigator) GetContentKeys() []int {
+	keys := make([]int, len(n.contentKeys))
+	copy(keys, n.contentKeys)
+	return keys
+}
+
 // ContentKeyCount returns the number of keys available for content.
 func (n *Navigator) ContentKeyCount() int {
 	return len(n.contentKeys)
@@ -308,7 +315,8 @@ func (n *Navigator) RenderPage() error {
 	if !n.IsAtRoot() {
 		images[KeyBack] = n.createTextImage("<-", color.RGBA{100, 100, 100, 255})
 	} else {
-		images[KeyBack] = n.createTextImage("HOME", color.RGBA{50, 50, 50, 255})
+		// At root the back key doubles as the settings entry point
+		images[KeyBack] = n.CreateTextImageWithColors("SET", color.RGBA{120, 80, 0, 255}, color.RGBA{255, 200, 50, 255})
 	}
 	if n.toggleStates[KeyToggle1] {
 		images[KeyToggle1] = n.createTextImage("T1:ON", color.RGBA{0, 150, 0, 255})
@@ -374,13 +382,13 @@ func (n *Navigator) RenderPage() error {
 
 // renderReservedKeys renders the reserved column buttons (column 0).
 func (n *Navigator) renderReservedKeys() {
-	// Key 0 (row 0, col 0): Back button
+	// Key 0 (row 0, col 0): Back button / settings entry at root
 	if !n.IsAtRoot() {
 		img := n.createTextImage("<-", color.RGBA{100, 100, 100, 255})
 		n.dev.SetImage(KeyBack, img)
 	} else {
-		// At root - show home indicator
-		img := n.createTextImage("HOME", color.RGBA{50, 50, 50, 255})
+		// At root – the key opens the settings menu
+		img := n.CreateTextImageWithColors("SET", color.RGBA{120, 80, 0, 255}, color.RGBA{255, 200, 50, 255})
 		n.dev.SetImage(KeyBack, img)
 	}
 

@@ -23,6 +23,7 @@ type Config struct {
 type ApplicationConfig struct {
 	Brightness int  `yaml:"brightness"`
 	PassiveFPS int  `yaml:"passive_fps"`
+	Timeout    int  `yaml:"timeout"` // Seconds before display sleeps; 0 = never
 	Debug      bool `yaml:"debug"`
 }
 
@@ -74,6 +75,7 @@ func DefaultConfig() *Config {
 		Application: ApplicationConfig{
 			Brightness: 75,
 			PassiveFPS: 2,
+			Timeout:    0,
 			Debug:      false,
 		},
 		Device: DeviceConfig{

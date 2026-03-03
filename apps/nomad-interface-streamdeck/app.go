@@ -24,7 +24,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/merith-tk/nomad/pkg/scripting"
 	"github.com/merith-tk/nomad/pkg/streamdeck"
@@ -39,6 +41,15 @@ type App struct {
 	configPath string
 	ctx        context.Context
 	cancel     context.CancelFunc
+
+	// Settings overlay
+	inSettings bool
+
+	// Display sleep / timeout
+	sleepMu      sync.Mutex
+	sleeping     bool
+	sleepTimer   *time.Timer
+	lastActivity time.Time
 }
 
 // NewApp creates a new application instance.
@@ -159,6 +170,18 @@ func (a *App) setupKeyUpdateCallback() {
 			return
 		}
 
+		// Don't let passive/background scripts paint over the settings overlay
+		// or a sleeping (blank) display.
+		if a.inSettings {
+			return
+		}
+		a.sleepMu.Lock()
+		isSleeping := a.sleeping
+		a.sleepMu.Unlock()
+		if isSleeping {
+			return
+		}
+
 		// Check for custom image first
 		if appearance.Image != "" {
 			img, err := scripting.LoadImage(appearance.Image)
@@ -198,6 +221,48 @@ func (a *App) setupKeyUpdateCallback() {
 	})
 }
 
+// resetSleepTimer resets (or starts) the inactivity sleep timer.
+// Must be called after any key activity and after timeout config changes.
+func (a *App) resetSleepTimer() {
+	a.sleepMu.Lock()
+	defer a.sleepMu.Unlock()
+
+	if a.sleepTimer != nil {
+		a.sleepTimer.Stop()
+		a.sleepTimer = nil
+	}
+
+	if a.config.Application.Timeout <= 0 {
+		return // disabled
+	}
+
+	duration := time.Duration(a.config.Application.Timeout) * time.Second
+	a.sleepTimer = time.AfterFunc(duration, func() {
+		a.sleepMu.Lock()
+		defer a.sleepMu.Unlock()
+		if !a.sleeping {
+			a.sleeping = true
+			fmt.Println("[*] Display sleeping (timeout)")
+			_ = a.device.SetBrightness(0)
+		}
+	})
+}
+
+// wakeDisplay restores brightness if the display is sleeping.
+// Returns true if the device was actually woken (caller should swallow the key).
+func (a *App) wakeDisplay() bool {
+	a.sleepMu.Lock()
+	defer a.sleepMu.Unlock()
+
+	if !a.sleeping {
+		return false
+	}
+	a.sleeping = false
+	fmt.Println("[*] Display waking up")
+	_ = a.device.SetBrightness(a.config.Application.Brightness)
+	return true
+}
+
 // Run starts the main event loop and handles user interactions.
 // It renders the initial page, sets up signal handling for graceful shutdown,
 // and processes key events from the Stream Deck device.
@@ -222,9 +287,13 @@ func (a *App) Run() error {
 	}
 
 	fmt.Println("\n[*] Navigation ready (Ctrl+C to exit)...")
-	fmt.Println("    - Column 0: Reserved (Back, Toggle1, Toggle2)")
+	fmt.Println("    - Column 0: Reserved (Back/<SET>, Toggle1, Toggle2)")
 	fmt.Println("    - Columns 1-4: Folder/action buttons")
-	fmt.Println("    - Press '<-' to go back")
+	fmt.Println("    - Press '<-' to go back; press 'SET' at root to open settings")
+
+	// Initialise the activity timer and last-activity timestamp.
+	a.lastActivity = time.Now()
+	a.resetSleepTimer()
 
 	// Update visible scripts for initial page
 	updateVisibleScripts()
@@ -257,6 +326,31 @@ func (a *App) Run() error {
 func (a *App) handleKeyEvent(event streamdeck.KeyEvent) error {
 	// Only handle key presses, not releases
 	if !event.Pressed {
+		return nil
+	}
+
+	// Reset / restart the inactivity sleep timer on every key press.
+	a.lastActivity = time.Now()
+	a.resetSleepTimer()
+
+	// If the display is sleeping, the first key press only wakes it up.
+	if a.wakeDisplay() {
+		if a.inSettings {
+			a.renderSettingsPage()
+		} else {
+			_ = a.nav.RenderPage()
+		}
+		return nil
+	}
+
+	// In settings mode all keys are handled by the settings handler.
+	if a.inSettings {
+		return a.handleSettingsKeyEvent(event.Key)
+	}
+
+	// At root, the back/settings key opens the settings menu.
+	if event.Key == streamdeck.KeyBack && a.nav.IsAtRoot() {
+		a.enterSettings()
 		return nil
 	}
 

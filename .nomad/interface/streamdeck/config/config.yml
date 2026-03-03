@@ -1,6 +1,7 @@
 application:
-    brightness: 75
+    brightness: 25
     passive_fps: 2
+    timeout: 0
     debug: false
 device:
     auto_detect: true
