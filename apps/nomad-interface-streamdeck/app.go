@@ -458,6 +458,9 @@ func (a *App) Shutdown() {
 		a.scriptMgr.Shutdown()
 	}
 	if a.device != nil {
+		// Blank the display on exit to prevent burn-in.
+		_ = a.device.SetBrightness(0)
+		_ = a.device.Clear()
 		a.device.Close()
 	}
 	streamdeck.Exit()
