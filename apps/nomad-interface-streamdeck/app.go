@@ -43,7 +43,8 @@ type App struct {
 	cancel     context.CancelFunc
 
 	// Settings overlay
-	inSettings bool
+	inSettings   bool
+	settingsPage int // future: scroll through setting rows
 
 	// Display sleep / timeout
 	sleepMu      sync.Mutex
@@ -354,20 +355,35 @@ func (a *App) handleKeyEvent(event streamdeck.KeyEvent) error {
 		return nil
 	}
 
+	// Intercept T1/T2 BEFORE passing to the navigator so the old toggle
+	// logic inside HandleKeyPress never fires for these keys.
+	if event.Key == streamdeck.KeyToggle1 {
+		if a.scriptMgr.HasT1Script() {
+			go func() {
+				if err := a.scriptMgr.TriggerT1(); err != nil {
+					log.Printf("T1 trigger: %v", err)
+				}
+			}()
+		}
+		// No script assigned: key is reserved/inert.
+		return nil
+	}
+	if event.Key == streamdeck.KeyToggle2 {
+		if a.scriptMgr.HasT2Script() {
+			go func() {
+				if err := a.scriptMgr.TriggerT2(); err != nil {
+					log.Printf("T2 trigger: %v", err)
+				}
+			}()
+		}
+		// No script assigned: key is reserved/inert.
+		return nil
+	}
+
 	// Handle the key press
 	item, navigated, err := a.nav.HandleKeyPress(event.Key)
 	if err != nil {
 		return fmt.Errorf("handling key press: %w", err)
-	}
-
-	// Check for toggle state changes
-	if event.Key == streamdeck.KeyToggle1 {
-		fmt.Printf("[*] Toggle1: %v\n", a.nav.GetToggleState(streamdeck.KeyToggle1))
-		return nil
-	}
-	if event.Key == streamdeck.KeyToggle2 {
-		fmt.Printf("[*] Toggle2: %v\n", a.nav.GetToggleState(streamdeck.KeyToggle2))
-		return nil
 	}
 
 	if navigated {
@@ -413,10 +429,26 @@ func (a *App) handleKeyEvent(event streamdeck.KeyEvent) error {
 	return nil
 }
 
-// updateVisibleScripts updates the visible scripts in the script manager.
-// This ensures that passive script updates only affect currently visible buttons.
+// updateVisibleScripts updates the visible scripts in the script manager and
+// wires the T1/T2 keys to .directory.lua of the current folder if it defines
+// t1_passive / t1_trigger / t2_passive / t2_trigger.
 func (a *App) updateVisibleScripts() {
 	a.scriptMgr.SetVisibleScripts(a.nav.GetVisibleScripts())
+
+	// Determine T1/T2 script assignments from the current folder's .directory.lua
+	dirScript := a.nav.CurrentDirScript()
+	t1Script, t2Script := "", ""
+	if dirScript != "" {
+		if runner := a.scriptMgr.GetRunner(dirScript); runner != nil {
+			if runner.HasT1Passive() || runner.HasT1Trigger() {
+				t1Script = dirScript
+			}
+			if runner.HasT2Passive() || runner.HasT2Trigger() {
+				t2Script = dirScript
+			}
+		}
+	}
+	a.scriptMgr.SetToggleScripts(t1Script, streamdeck.KeyToggle1, t2Script, streamdeck.KeyToggle2)
 }
 
 // Shutdown cleans up resources.

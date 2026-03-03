@@ -75,6 +75,24 @@ func (a *App) renderSettingsPage() {
 	backImg := a.nav.CreateTextImageWithColors("<-", color.RGBA{100, 100, 100, 255}, color.White)
 	a.device.SetImage(streamdeck.KeyBack, backImg)
 
+	// T1 / T2 are page-scroll arrows for settings.
+	// Currently there is only one settings page so they are shown dimmed.
+	const totalSettingsPages = 1
+	if a.settingsPage > 0 {
+		t1Img := a.nav.CreateTextImageWithColors("PG^", color.RGBA{80, 80, 80, 255}, color.White)
+		a.device.SetImage(streamdeck.KeyToggle1, t1Img)
+	} else {
+		t1Img := a.nav.CreateTextImageWithColors("PG^", color.RGBA{30, 30, 30, 255}, color.RGBA{80, 80, 80, 255})
+		a.device.SetImage(streamdeck.KeyToggle1, t1Img)
+	}
+	if a.settingsPage < totalSettingsPages-1 {
+		t2Img := a.nav.CreateTextImageWithColors("PGv", color.RGBA{80, 80, 80, 255}, color.White)
+		a.device.SetImage(streamdeck.KeyToggle2, t2Img)
+	} else {
+		t2Img := a.nav.CreateTextImageWithColors("PG▼", color.RGBA{30, 30, 30, 255}, color.RGBA{80, 80, 80, 255})
+		a.device.SetImage(streamdeck.KeyToggle2, t2Img)
+	}
+
 	// Helper to set a content key by slot index
 	setSlot := func(slot int, text string, bg, fg color.RGBA) {
 		if slot >= len(contentKeys) {
@@ -106,6 +124,23 @@ func (a *App) handleSettingsKeyEvent(keyIndex int) error {
 	// Back key: leave settings
 	if keyIndex == streamdeck.KeyBack {
 		a.exitSettings()
+		return nil
+	}
+
+	// T1/T2 scroll through settings pages (future expansion; no-op on single page)
+	const totalSettingsPages = 1
+	if keyIndex == streamdeck.KeyToggle1 {
+		if a.settingsPage > 0 {
+			a.settingsPage--
+			a.renderSettingsPage()
+		}
+		return nil
+	}
+	if keyIndex == streamdeck.KeyToggle2 {
+		if a.settingsPage < totalSettingsPages-1 {
+			a.settingsPage++
+			a.renderSettingsPage()
+		}
 		return nil
 	}
 

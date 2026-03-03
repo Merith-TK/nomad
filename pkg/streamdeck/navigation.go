@@ -53,9 +53,8 @@ type Navigator struct {
 	rootPath     string
 	currentDir   string
 	pageIndex    int
-	contentKeys  []int        // Key indices available for content (excludes column 0)
-	reservedKeys []int        // Key indices for reserved functions (column 0)
-	toggleStates map[int]bool // Toggle state for dummy keys
+	contentKeys  []int // Key indices available for content (excludes column 0)
+	reservedKeys []int // Key indices for reserved functions (column 0)
 
 	// scriptValidator is called for each .lua file; if set and returns false the
 	// file is hidden from the page (e.g. scripts with no recognised functions).
@@ -65,11 +64,10 @@ type Navigator struct {
 // NewNavigator creates a new navigator for the given device and root config path.
 func NewNavigator(dev *Device, rootPath string) *Navigator {
 	n := &Navigator{
-		dev:          dev,
-		rootPath:     rootPath,
-		currentDir:   rootPath,
-		pageIndex:    0,
-		toggleStates: make(map[int]bool),
+		dev:        dev,
+		rootPath:   rootPath,
+		currentDir: rootPath,
+		pageIndex:  0,
 	}
 	n.calculateKeyLayout()
 	return n
@@ -123,6 +121,16 @@ func (n *Navigator) SetScriptValidator(fn func(path string) bool) {
 // IsAtRoot returns true if we're at the root config directory.
 func (n *Navigator) IsAtRoot() bool {
 	return n.currentDir == n.rootPath
+}
+
+// CurrentDirScript returns the path to the .directory.lua inside the current
+// folder, or an empty string if no such file exists.
+func (n *Navigator) CurrentDirScript() string {
+	p := filepath.Join(n.currentDir, ".directory.lua")
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return ""
 }
 
 // LoadPage loads the current page and returns page info.
@@ -318,16 +326,10 @@ func (n *Navigator) RenderPage() error {
 		// At root the back key doubles as the settings entry point
 		images[KeyBack] = n.CreateTextImageWithColors("SET", color.RGBA{120, 80, 0, 255}, color.RGBA{255, 200, 50, 255})
 	}
-	if n.toggleStates[KeyToggle1] {
-		images[KeyToggle1] = n.createTextImage("T1:ON", color.RGBA{0, 150, 0, 255})
-	} else {
-		images[KeyToggle1] = n.createTextImage("T1", color.RGBA{80, 80, 80, 255})
-	}
-	if n.toggleStates[KeyToggle2] {
-		images[KeyToggle2] = n.createTextImage("T2:ON", color.RGBA{0, 150, 0, 255})
-	} else {
-		images[KeyToggle2] = n.createTextImage("T2", color.RGBA{80, 80, 80, 255})
-	}
+	// T1 / T2: render a dim default; passive scripts from .directory.lua
+	// will paint over these via the key-update callback.
+	images[KeyToggle1] = n.createTextImage("T1", color.RGBA{30, 30, 30, 255})
+	images[KeyToggle2] = n.createTextImage("T2", color.RGBA{30, 30, 30, 255})
 
 	// Content keys
 	for i, item := range page.Items {
@@ -392,23 +394,10 @@ func (n *Navigator) renderReservedKeys() {
 		n.dev.SetImage(KeyBack, img)
 	}
 
-	// Key 5 (row 1, col 0): Toggle 1 (placeholder)
-	if n.toggleStates[KeyToggle1] {
-		img := n.createTextImage("T1:ON", color.RGBA{0, 150, 0, 255})
-		n.dev.SetImage(KeyToggle1, img)
-	} else {
-		img := n.createTextImage("T1", color.RGBA{80, 80, 80, 255})
-		n.dev.SetImage(KeyToggle1, img)
-	}
-
-	// Key 10 (row 2, col 0): Toggle 2 (placeholder)
-	if n.toggleStates[KeyToggle2] {
-		img := n.createTextImage("T2:ON", color.RGBA{0, 150, 0, 255})
-		n.dev.SetImage(KeyToggle2, img)
-	} else {
-		img := n.createTextImage("T2", color.RGBA{80, 80, 80, 255})
-		n.dev.SetImage(KeyToggle2, img)
-	}
+	// T1 / T2: render a dim default; passive scripts from .directory.lua
+	// will paint over these via the key-update callback.
+	n.dev.SetImage(KeyToggle1, n.createTextImage("T1", color.RGBA{30, 30, 30, 255}))
+	n.dev.SetImage(KeyToggle2, n.createTextImage("T2", color.RGBA{30, 30, 30, 255}))
 }
 
 // HandleKeyPress handles a key press and returns the action to take.
@@ -428,16 +417,8 @@ func (n *Navigator) HandleKeyPress(keyIndex int) (*PageItem, bool, error) {
 		}
 		return nil, false, nil
 
-	case KeyToggle1:
-		// Toggle state and re-render
-		n.toggleStates[KeyToggle1] = !n.toggleStates[KeyToggle1]
-		n.renderReservedKeys()
-		return nil, false, nil
-
-	case KeyToggle2:
-		// Toggle state and re-render
-		n.toggleStates[KeyToggle2] = !n.toggleStates[KeyToggle2]
-		n.renderReservedKeys()
+	case KeyToggle1, KeyToggle2:
+		// Reserved – handled upstream before HandleKeyPress is called.
 		return nil, false, nil
 	}
 
@@ -460,16 +441,6 @@ func (n *Navigator) HandleKeyPress(keyIndex int) (*PageItem, bool, error) {
 	}
 
 	return nil, false, nil
-}
-
-// GetToggleState returns the state of a toggle key.
-func (n *Navigator) GetToggleState(keyIndex int) bool {
-	return n.toggleStates[keyIndex]
-}
-
-// SetToggleState sets the state of a toggle key.
-func (n *Navigator) SetToggleState(keyIndex int, state bool) {
-	n.toggleStates[keyIndex] = state
 }
 
 // GetVisibleScripts returns a map of script paths to key indices for visible scripts.

@@ -64,6 +64,12 @@ type ScriptManager struct {
 
 	// Callback when passive wants to update a key
 	onKeyUpdate func(keyIndex int, appearance *KeyAppearance)
+
+	// T1 / T2 toggle-key scripts – set by the app on every navigation
+	t1Script string
+	t1Key    int
+	t2Script string
+	t2Key    int
 }
 
 // NewScriptManager creates a new script manager.
@@ -220,6 +226,7 @@ func (m *ScriptManager) passiveLoop() {
 			return
 		case <-ticker.C:
 			m.runPassiveUpdate()
+			m.runTogglePassive() // always runs, even when no content scripts are visible
 
 			// Process batched updates (limit to prevent blocking)
 			m.processBatchedUpdates(5) // Process up to 5 updates per tick
@@ -268,7 +275,7 @@ func (m *ScriptManager) runPassiveUpdate() {
 	wg.Wait()
 }
 
-// batchUpdate adds an update to the batch queue.
+// runPassiveUpdate calls passive() on all visible content-key scripts concurrently. adds an update to the batch queue.
 func (m *ScriptManager) batchUpdate(scriptPath string, appearance *KeyAppearance) {
 	m.mu.Lock()
 	m.passiveBatch[scriptPath] = appearance
@@ -351,6 +358,94 @@ func (m *ScriptManager) IsUsableScript(scriptPath string) bool {
 		return false
 	}
 	return runner.HasBackground() || runner.HasPassive() || runner.HasTrigger()
+}
+
+// SetToggleScripts registers the .directory.lua script (and physical key indices)
+// that should drive the T1 and T2 reserved keys via t1_passive/t1_trigger etc.
+// Pass an empty string for either path to fall back to default toggle behaviour.
+func (m *ScriptManager) SetToggleScripts(t1Script string, t1Key int, t2Script string, t2Key int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.t1Script = t1Script
+	m.t1Key = t1Key
+	m.t2Script = t2Script
+	m.t2Key = t2Key
+}
+
+// HasT1Script returns true when a script is driving the T1 key.
+func (m *ScriptManager) HasT1Script() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.t1Script != ""
+}
+
+// HasT2Script returns true when a script is driving the T2 key.
+func (m *ScriptManager) HasT2Script() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.t2Script != ""
+}
+
+// TriggerT1 calls t1_trigger on the registered T1 script, if any.
+func (m *ScriptManager) TriggerT1() error {
+	m.mu.RLock()
+	runner := m.runners[m.t1Script]
+	m.mu.RUnlock()
+	if runner == nil {
+		return nil
+	}
+	return runner.RunT1Trigger()
+}
+
+// TriggerT2 calls t2_trigger on the registered T2 script, if any.
+func (m *ScriptManager) TriggerT2() error {
+	m.mu.RLock()
+	runner := m.runners[m.t2Script]
+	m.mu.RUnlock()
+	if runner == nil {
+		return nil
+	}
+	return runner.RunT2Trigger()
+}
+
+// runTogglePassive runs t1_passive / t2_passive for the currently registered toggle scripts.
+func (m *ScriptManager) runTogglePassive() {
+	type toggleEntry struct {
+		script string
+		key    int
+		isT1   bool
+	}
+
+	m.mu.RLock()
+	entries := []toggleEntry{
+		{m.t1Script, m.t1Key, true},
+		{m.t2Script, m.t2Key, false},
+	}
+	cb := m.onKeyUpdate
+	m.mu.RUnlock()
+
+	for _, e := range entries {
+		if e.script == "" || cb == nil {
+			continue
+		}
+		m.mu.RLock()
+		runner := m.runners[e.script]
+		m.mu.RUnlock()
+		if runner == nil {
+			continue
+		}
+		var ap *KeyAppearance
+		var err error
+		if e.isT1 {
+			ap, err = runner.RunT1Passive(e.key)
+		} else {
+			ap, err = runner.RunT2Passive(e.key)
+		}
+		if err != nil || ap == nil {
+			continue
+		}
+		cb(e.key, ap)
+	}
 }
 
 // TriggerScript executes the trigger function for a script.

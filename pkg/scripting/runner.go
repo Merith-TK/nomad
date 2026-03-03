@@ -87,6 +87,12 @@ type ScriptRunner struct {
 	hasPassive    bool
 	hasTrigger    bool
 
+	// T1 / T2 toggle-key functions (driven by .directory.lua of the current folder)
+	hasT1Passive bool
+	hasT1Trigger bool
+	hasT2Passive bool
+	hasT2Trigger bool
+
 	// Background worker
 	bgCtx         context.Context
 	bgCancel      context.CancelFunc
@@ -152,8 +158,14 @@ func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string
 	r.hasBackground = r.module.RawGetString("background").Type() == lua.LTFunction
 	r.hasPassive = r.module.RawGetString("passive").Type() == lua.LTFunction
 	r.hasTrigger = r.module.RawGetString("trigger").Type() == lua.LTFunction
+	r.hasT1Passive = r.module.RawGetString("t1_passive").Type() == lua.LTFunction
+	r.hasT1Trigger = r.module.RawGetString("t1_trigger").Type() == lua.LTFunction
+	r.hasT2Passive = r.module.RawGetString("t2_passive").Type() == lua.LTFunction
+	r.hasT2Trigger = r.module.RawGetString("t2_trigger").Type() == lua.LTFunction
 
-	fmt.Printf("[*] Loaded %s (bg=%v passive=%v trigger=%v)\n", r.ScriptName, r.hasBackground, r.hasPassive, r.hasTrigger)
+	fmt.Printf("[*] Loaded %s (bg=%v passive=%v trigger=%v t1=%v/%v t2=%v/%v)\n",
+		r.ScriptName, r.hasBackground, r.hasPassive, r.hasTrigger,
+		r.hasT1Passive, r.hasT1Trigger, r.hasT2Passive, r.hasT2Trigger)
 
 	// Check for restart policy setting
 	policy := r.L.GetGlobal("RESTART_POLICY")
@@ -232,19 +244,25 @@ func (r *ScriptRunner) putTable(tbl *lua.LTable) {
 }
 
 // HasBackground returns true if script defines background().
-func (r *ScriptRunner) HasBackground() bool {
-	return r.hasBackground
-}
+func (r *ScriptRunner) HasBackground() bool { return r.hasBackground }
 
 // HasPassive returns true if script defines passive().
-func (r *ScriptRunner) HasPassive() bool {
-	return r.hasPassive
-}
+func (r *ScriptRunner) HasPassive() bool { return r.hasPassive }
 
 // HasTrigger returns true if script defines trigger().
-func (r *ScriptRunner) HasTrigger() bool {
-	return r.hasTrigger
-}
+func (r *ScriptRunner) HasTrigger() bool { return r.hasTrigger }
+
+// HasT1Passive returns true if script defines t1_passive().
+func (r *ScriptRunner) HasT1Passive() bool { return r.hasT1Passive }
+
+// HasT1Trigger returns true if script defines t1_trigger().
+func (r *ScriptRunner) HasT1Trigger() bool { return r.hasT1Trigger }
+
+// HasT2Passive returns true if script defines t2_passive().
+func (r *ScriptRunner) HasT2Passive() bool { return r.hasT2Passive }
+
+// HasT2Trigger returns true if script defines t2_trigger().
+func (r *ScriptRunner) HasT2Trigger() bool { return r.hasT2Trigger }
 
 // StartBackground starts the background worker goroutine.
 func (r *ScriptRunner) StartBackground(parentCtx context.Context) {
@@ -467,23 +485,58 @@ func (r *ScriptRunner) StopBackground() {
 	r.mu.Unlock()
 }
 
-// RunPassive calls passive(key, state) or module.passive(key, state) and returns appearance.
-// Uses TryLock on luaMu to avoid blocking if background or trigger is using the Lua VM.
-func (r *ScriptRunner) RunPassive(keyIndex int) (*KeyAppearance, error) {
-	// Try to acquire the Lua VM lock - if it is held by background/trigger, skip this tick
+// parseAppearance parses a Lua table into a KeyAppearance.
+// Must be called while r.mu (at minimum read-locked) and r.luaMu are already held.
+func (r *ScriptRunner) parseAppearance(tbl *lua.LTable) *KeyAppearance {
+	appearance := &KeyAppearance{}
+
+	// Parse color: {r, g, b}
+	if colorVal := r.L.GetField(tbl, "color"); colorVal.Type() == lua.LTTable {
+		colorTbl := colorVal.(*lua.LTable)
+		appearance.Color[0] = int(lua.LVAsNumber(r.L.RawGetInt(colorTbl, 1)))
+		appearance.Color[1] = int(lua.LVAsNumber(r.L.RawGetInt(colorTbl, 2)))
+		appearance.Color[2] = int(lua.LVAsNumber(r.L.RawGetInt(colorTbl, 3)))
+	}
+
+	if textVal := r.L.GetField(tbl, "text"); textVal.Type() == lua.LTString {
+		appearance.Text = textVal.String()
+	}
+
+	if tcVal := r.L.GetField(tbl, "text_color"); tcVal.Type() == lua.LTTable {
+		tcTbl := tcVal.(*lua.LTable)
+		appearance.TextColor[0] = int(lua.LVAsNumber(r.L.RawGetInt(tcTbl, 1)))
+		appearance.TextColor[1] = int(lua.LVAsNumber(r.L.RawGetInt(tcTbl, 2)))
+		appearance.TextColor[2] = int(lua.LVAsNumber(r.L.RawGetInt(tcTbl, 3)))
+	} else {
+		appearance.TextColor = [3]int{255, 255, 255}
+	}
+
+	if imgVal := r.L.GetField(tbl, "image"); imgVal.Type() == lua.LTString {
+		imgPath := imgVal.String()
+		if strings.HasPrefix(imgPath, "http://") || strings.HasPrefix(imgPath, "https://") {
+			appearance.Image = imgPath
+		} else if !filepath.IsAbs(imgPath) {
+			appearance.Image = filepath.Join(filepath.Dir(r.ScriptPath), imgPath)
+		} else {
+			appearance.Image = imgPath
+		}
+	}
+
+	return appearance
+}
+
+// runNamedPassive calls fnName(keyIndex, state) and returns the parsed appearance.
+// It tries to acquire luaMu; if held, it returns (nil, nil) to skip this tick.
+func (r *ScriptRunner) runNamedPassive(fnName string, keyIndex int) (*KeyAppearance, error) {
 	if !r.luaMu.TryLock() {
-		return nil, nil // Skip, try again next tick
+		return nil, nil // Lua VM busy – skip this tick
 	}
 	defer r.luaMu.Unlock()
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if !r.hasPassive {
-		return nil, nil
-	}
-
-	fn := r.module.RawGetString("passive")
+	fn := r.module.RawGetString(fnName)
 	if fn.Type() != lua.LTFunction {
 		return nil, nil
 	}
@@ -496,77 +549,50 @@ func (r *ScriptRunner) RunPassive(keyIndex int) (*KeyAppearance, error) {
 		return nil, err
 	}
 
-	// Get return value
 	ret := r.L.Get(-1)
 	r.L.Pop(1)
-
-	if ret.Type() == lua.LTNil {
-		return nil, nil
-	}
 
 	if ret.Type() != lua.LTTable {
 		return nil, nil
 	}
 
-	tbl := ret.(*lua.LTable)
-	appearance := &KeyAppearance{}
-
-	// Parse color: {r, g, b} or table with .color field
-	if colorVal := r.L.GetField(tbl, "color"); colorVal.Type() == lua.LTTable {
-		colorTbl := colorVal.(*lua.LTable)
-		appearance.Color[0] = int(lua.LVAsNumber(r.L.RawGetInt(colorTbl, 1)))
-		appearance.Color[1] = int(lua.LVAsNumber(r.L.RawGetInt(colorTbl, 2)))
-		appearance.Color[2] = int(lua.LVAsNumber(r.L.RawGetInt(colorTbl, 3)))
-	}
-
-	// Parse text
-	if textVal := r.L.GetField(tbl, "text"); textVal.Type() == lua.LTString {
-		appearance.Text = textVal.String()
-	}
-
-	// Parse text_color
-	if tcVal := r.L.GetField(tbl, "text_color"); tcVal.Type() == lua.LTTable {
-		tcTbl := tcVal.(*lua.LTable)
-		appearance.TextColor[0] = int(lua.LVAsNumber(r.L.RawGetInt(tcTbl, 1)))
-		appearance.TextColor[1] = int(lua.LVAsNumber(r.L.RawGetInt(tcTbl, 2)))
-		appearance.TextColor[2] = int(lua.LVAsNumber(r.L.RawGetInt(tcTbl, 3)))
-	} else {
-		// Default text color: white
-		appearance.TextColor = [3]int{255, 255, 255}
-	}
-
-	// Parse image path - resolve relative to script directory
-	if imgVal := r.L.GetField(tbl, "image"); imgVal.Type() == lua.LTString {
-		imgPath := imgVal.String()
-		// If it's a URL, keep as-is
-		if strings.HasPrefix(imgPath, "http://") || strings.HasPrefix(imgPath, "https://") {
-			appearance.Image = imgPath
-		} else if !filepath.IsAbs(imgPath) {
-			// Relative path - resolve relative to script's directory
-			scriptDir := filepath.Dir(r.ScriptPath)
-			appearance.Image = filepath.Join(scriptDir, imgPath)
-		} else {
-			appearance.Image = imgPath
-		}
-	}
-
-	return appearance, nil
+	return r.parseAppearance(ret.(*lua.LTable)), nil
 }
 
-// RunTrigger calls trigger(state) or module.trigger(state).
-func (r *ScriptRunner) RunTrigger() error {
-	r.mu.RLock()
-	hasTrigger := r.hasTrigger
-	r.mu.RUnlock()
-
-	if !hasTrigger {
-		return nil
+// RunPassive calls passive(key, state) and returns appearance.
+// Uses TryLock on luaMu to avoid blocking if background or trigger is using the Lua VM.
+func (r *ScriptRunner) RunPassive(keyIndex int) (*KeyAppearance, error) {
+	if !r.hasPassive {
+		return nil, nil
 	}
+	return r.runNamedPassive("passive", keyIndex)
+}
 
+// RunT1Passive calls t1_passive(key, state) for the T1 toggle key.
+func (r *ScriptRunner) RunT1Passive(keyIndex int) (*KeyAppearance, error) {
+	if !r.hasT1Passive {
+		return nil, nil
+	}
+	return r.runNamedPassive("t1_passive", keyIndex)
+}
+
+// RunT2Passive calls t2_passive(key, state) for the T2 toggle key.
+func (r *ScriptRunner) RunT2Passive(keyIndex int) (*KeyAppearance, error) {
+	if !r.hasT2Passive {
+		return nil, nil
+	}
+	return r.runNamedPassive("t2_passive", keyIndex)
+}
+
+// runNamedTrigger calls fnName(state). Acquires luaMu.
+func (r *ScriptRunner) runNamedTrigger(fnName string) error {
 	r.luaMu.Lock()
 	defer r.luaMu.Unlock()
 
-	fn := r.module.RawGetString("trigger")
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	fn := r.module.RawGetString(fnName)
 	if fn.Type() != lua.LTFunction {
 		return nil
 	}
@@ -577,8 +603,31 @@ func (r *ScriptRunner) RunTrigger() error {
 	if err := r.L.PCall(1, 0, nil); err != nil {
 		return err
 	}
-
 	return nil
+}
+
+// RunTrigger calls trigger(state).
+func (r *ScriptRunner) RunTrigger() error {
+	if !r.hasTrigger {
+		return nil
+	}
+	return r.runNamedTrigger("trigger")
+}
+
+// RunT1Trigger calls t1_trigger(state).
+func (r *ScriptRunner) RunT1Trigger() error {
+	if !r.hasT1Trigger {
+		return nil
+	}
+	return r.runNamedTrigger("t1_trigger")
+}
+
+// RunT2Trigger calls t2_trigger(state).
+func (r *ScriptRunner) RunT2Trigger() error {
+	if !r.hasT2Trigger {
+		return nil
+	}
+	return r.runNamedTrigger("t2_trigger")
 }
 
 // Close shuts down the runner and releases resources.
