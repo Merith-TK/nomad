@@ -56,6 +56,10 @@ type Navigator struct {
 	contentKeys  []int        // Key indices available for content (excludes column 0)
 	reservedKeys []int        // Key indices for reserved functions (column 0)
 	toggleStates map[int]bool // Toggle state for dummy keys
+
+	// scriptValidator is called for each .lua file; if set and returns false the
+	// file is hidden from the page (e.g. scripts with no recognised functions).
+	scriptValidator func(path string) bool
 }
 
 // NewNavigator creates a new navigator for the given device and root config path.
@@ -102,6 +106,13 @@ func (n *Navigator) CurrentPath() string {
 	return n.currentDir
 }
 
+// SetScriptValidator sets a function that is called for each .lua candidate.
+// Return true to show the file, false to hide it. Useful for filtering out
+// scripts that do not define any of background/passive/trigger.
+func (n *Navigator) SetScriptValidator(fn func(path string) bool) {
+	n.scriptValidator = fn
+}
+
 // IsAtRoot returns true if we're at the root config directory.
 func (n *Navigator) IsAtRoot() bool {
 	return n.currentDir == n.rootPath
@@ -117,24 +128,56 @@ func (n *Navigator) LoadPage() (*Page, error) {
 	// Filter and sort entries
 	var items []PageItem
 	for _, entry := range entries {
-		// Skip hidden files and special files (starting with . or _)
-		if len(entry.Name()) > 0 && (entry.Name()[0] == '.' || entry.Name()[0] == '_') {
+		name := entry.Name()
+
+		// Skip underscore-prefixed entries (internal / private)
+		if len(name) > 0 && name[0] == '_' {
 			continue
 		}
 
-		item := PageItem{
-			Name:     entry.Name(),
-			Path:     filepath.Join(n.currentDir, entry.Name()),
-			IsFolder: entry.IsDir(),
+		// .directory.lua is a special per-folder passive script, not a button
+		if name == ".directory.lua" {
+			continue
 		}
 
-		// Check for lua script
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".lua" {
-			item.Script = item.Path
-			item.Name = entry.Name()[:len(entry.Name())-4] // Remove .lua extension
+		// All other dot-files / dot-dirs are also hidden
+		if len(name) > 0 && name[0] == '.' {
+			continue
 		}
 
-		items = append(items, item)
+		if entry.IsDir() {
+			item := PageItem{
+				Name:     name,
+				Path:     filepath.Join(n.currentDir, name),
+				IsFolder: true,
+			}
+			// If the folder contains a .directory.lua, attach it so the
+			// passive loop can drive the button's appearance.
+			dirScript := filepath.Join(item.Path, ".directory.lua")
+			if _, err := os.Stat(dirScript); err == nil {
+				item.Script = dirScript
+			}
+			items = append(items, item)
+			continue
+		}
+
+		// Only .lua files beyond this point
+		if filepath.Ext(name) != ".lua" {
+			continue
+		}
+
+		scriptPath := filepath.Join(n.currentDir, name)
+
+		// If a validator is registered, skip scripts it rejects
+		if n.scriptValidator != nil && !n.scriptValidator(scriptPath) {
+			continue
+		}
+
+		items = append(items, PageItem{
+			Name:   name[:len(name)-4], // strip .lua
+			Path:   scriptPath,
+			Script: scriptPath,
+		})
 	}
 
 	// Sort: folders first, then alphabetically
@@ -422,6 +465,7 @@ func (n *Navigator) SetToggleState(keyIndex int, state bool) {
 }
 
 // GetVisibleScripts returns a map of script paths to key indices for visible scripts.
+// Includes both action scripts and folder .directory.lua passive scripts.
 func (n *Navigator) GetVisibleScripts() map[string]int {
 	result := make(map[string]int)
 
@@ -434,9 +478,8 @@ func (n *Navigator) GetVisibleScripts() map[string]int {
 		if i >= len(n.contentKeys) {
 			break
 		}
-		if !item.IsFolder && item.Script != "" {
-			keyIndex := n.contentKeys[i]
-			result[item.Script] = keyIndex
+		if item.Script != "" {
+			result[item.Script] = n.contentKeys[i]
 		}
 	}
 

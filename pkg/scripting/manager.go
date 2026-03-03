@@ -333,6 +333,19 @@ func (m *ScriptManager) GetRunner(scriptPath string) *ScriptRunner {
 	return m.runners[scriptPath]
 }
 
+// IsUsableScript returns true if the script has been loaded and defines at least
+// one of background / passive / trigger. Used by the Navigator to filter the
+// button list so that helper-only scripts are not shown as buttons.
+func (m *ScriptManager) IsUsableScript(scriptPath string) bool {
+	m.mu.RLock()
+	runner := m.runners[scriptPath]
+	m.mu.RUnlock()
+	if runner == nil {
+		return false
+	}
+	return runner.HasBackground() || runner.HasPassive() || runner.HasTrigger()
+}
+
 // TriggerScript executes the trigger function for a script.
 func (m *ScriptManager) TriggerScript(scriptPath string) error {
 	m.mu.RLock()

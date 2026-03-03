@@ -140,6 +140,7 @@ func (a *App) Init() error {
 
 	// Create navigator
 	a.nav = streamdeck.NewNavigator(dev, absConfigPath)
+	a.nav.SetScriptValidator(a.scriptMgr.IsUsableScript)
 
 	// Set up passive key updates from scripts
 	a.setupKeyUpdateCallback()
