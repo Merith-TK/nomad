@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/merith-tk/nomad/pkg/scripting/modules"
 	"github.com/merith-tk/nomad/pkg/streamdeck"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -42,6 +43,17 @@ type ScriptManager struct {
 	device     *streamdeck.Device
 	configDir  string
 	passiveFPS int
+
+	// Installed .packages/ library paths – prepended to every runner's package.path.
+	packageLibPaths []string
+
+	// Shared cross-script key-value store – passed to every ScriptRunner.
+	store *modules.StoreModule
+
+	// daemonRunners holds runners for package daemon scripts.
+	// These are distinct from content runners: they are never shown as deck
+	// buttons and are always running as long as the app is alive.
+	daemonRunners []*ScriptRunner
 
 	// All loaded script runners, keyed by script path
 	runners map[string]*ScriptRunner
@@ -84,6 +96,7 @@ func NewScriptManager(dev *streamdeck.Device, configDir string, passiveFPS int) 
 		runners:        make(map[string]*ScriptRunner),
 		visibleScripts: make(map[string]int),
 		passiveBatch:   make(map[string]*KeyAppearance),
+		store:          modules.NewStoreModule(),
 	}
 }
 
@@ -100,6 +113,65 @@ func (m *ScriptManager) Boot(ctx context.Context) error {
 	m.mu.Lock()
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.mu.Unlock()
+
+	// Discover installed packages in .packages/ and build library search paths.
+	packages, pkgErr := ScanPackages(m.configDir)
+	if pkgErr != nil {
+		fmt.Printf("[!] Warning: failed to scan packages: %v\n", pkgErr)
+	}
+	if len(packages) > 0 {
+		fmt.Printf("[*] Installed packages (%d):\n", len(packages))
+		installedIDs := make(map[string]bool, len(packages))
+		for _, pkg := range packages {
+			installedIDs[pkg.Manifest.ID] = true
+		}
+		for _, pkg := range packages {
+			name := pkg.Manifest.Name
+			if name == "" {
+				name = pkg.Manifest.ID
+			}
+			ver := pkg.Manifest.Version
+			if ver == "" {
+				ver = "unknown"
+			}
+			line := fmt.Sprintf("    - %s v%s", name, ver)
+			if pkg.Manifest.Description != "" {
+				line += ": " + pkg.Manifest.Description
+			}
+			fmt.Println(line)
+			for _, req := range pkg.Manifest.Requires {
+				if !installedIDs[req] {
+					fmt.Printf("    [!] %s requires %s (not installed)\n", pkg.Manifest.ID, req)
+				}
+			}
+			if pkg.LibDir != "" {
+				m.packageLibPaths = append(m.packageLibPaths, pkg.LibDir)
+			}
+		}
+
+		// Boot daemon scripts now that packageLibPaths is fully populated.
+		fmt.Println("[*] Starting package daemons...")
+		for _, pkg := range packages {
+			if pkg.DaemonScript == "" {
+				continue
+			}
+			dRunner, dErr := NewScriptRunner(pkg.DaemonScript, m.device, m.configDir, m.packageLibPaths, m.store)
+			if dErr != nil {
+				fmt.Printf("[!] Package %s: failed to load daemon: %v\n", pkg.Manifest.ID, dErr)
+				continue
+			}
+			if !dRunner.HasDaemon() {
+				fmt.Printf("[!] Package %s: daemon.lua has no daemon() function\n", pkg.Manifest.ID)
+				dRunner.Close()
+				continue
+			}
+			fmt.Printf("[*] Starting daemon: %s (%s)\n", pkg.Manifest.ID, pkg.DaemonScript)
+			dRunner.StartDaemon(m.ctx)
+			m.daemonRunners = append(m.daemonRunners, dRunner)
+		}
+	} else {
+		fmt.Println("[*] No packages installed (.packages/ empty or absent)")
+	}
 
 	// Check for boot animation script - runs synchronously
 	bootPath := filepath.Join(m.configDir, "_boot.lua")
@@ -133,7 +205,7 @@ func (m *ScriptManager) Boot(ctx context.Context) error {
 	// Load each script
 	loaded := 0
 	for _, scriptPath := range scriptPaths {
-		runner, err := NewScriptRunner(scriptPath, m.device, m.configDir)
+		runner, err := NewScriptRunner(scriptPath, m.device, m.configDir, m.packageLibPaths, m.store)
 		if err != nil {
 			fmt.Printf("[!] Failed to load %s: %v\n", filepath.Base(scriptPath), err)
 			continue
@@ -171,7 +243,7 @@ func (m *ScriptManager) runBootAnimation() {
 		return
 	}
 
-	runner, err := NewScriptRunner(m.bootScriptPath, m.device, m.configDir)
+	runner, err := NewScriptRunner(m.bootScriptPath, m.device, m.configDir, m.packageLibPaths, m.store)
 	if err != nil {
 		fmt.Printf("[!] Boot animation failed: %v\n", err)
 		return
@@ -498,11 +570,18 @@ func (m *ScriptManager) Shutdown() {
 		m.cancel()
 	}
 
-	// Close all runners
+	// Close content runners
 	for path, runner := range m.runners {
 		runner.Close()
 		delete(m.runners, path)
 	}
+
+	// Close package daemon runners
+	for _, runner := range m.daemonRunners {
+		runner.Close()
+	}
+	m.daemonRunners = nil
+
 	m.mu.Unlock()
 
 	fmt.Println("[*] Script manager shutdown complete")

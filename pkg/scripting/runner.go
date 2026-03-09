@@ -87,6 +87,11 @@ type ScriptRunner struct {
 	hasPassive    bool
 	hasTrigger    bool
 
+	// hasDaemon is true when the module defines a daemon() function.
+	// Daemon scripts are package-level background workers managed by
+	// ScriptManager; they are never shown as deck buttons.
+	hasDaemon bool
+
 	// T1 / T2 toggle-key functions (driven by .directory.lua of the current folder)
 	hasT1Passive bool
 	hasT1Trigger bool
@@ -94,10 +99,13 @@ type ScriptRunner struct {
 	hasT2Trigger bool
 
 	// Background worker
-	bgCtx         context.Context
-	bgCancel      context.CancelFunc
-	bgRunning     bool
-	bgRestarts    int
+	bgCtx      context.Context
+	bgCancel   context.CancelFunc
+	bgRunning  bool
+	bgRestarts int
+	// bgFuncName is the module-table key used by the running coroutine.
+	// "background" for normal scripts, "daemon" for package daemons.
+	bgFuncName    string
 	restartPolicy RestartPolicy
 
 	// Background coroutine support
@@ -110,18 +118,32 @@ type ScriptRunner struct {
 	device    *streamdeck.Device
 	configDir string
 
+	// Package library search paths (from .packages/*/lib/) and cross-script store.
+	// Both are set by ScriptManager before registerModules() is called.
+	packageLibPaths []string
+	store           *modules.StoreModule
+
 	// Refresh callback (called when script wants display update)
 	onRefresh func()
 }
 
 // NewScriptRunner creates a runner for a Lua script.
-func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string) (*ScriptRunner, error) {
+//
+// packageLibPaths lists absolute paths to lib/ directories from installed
+// .packages/ entries; they are prepended to Lua's package.path so that
+// require('mylib') resolves to <packageDir>/lib/mylib.lua.
+//
+// store is the shared cross-script key-value store exposed as require('store');
+// pass nil to disable the store module (e.g. for isolated test runners).
+func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string, packageLibPaths []string, store *modules.StoreModule) (*ScriptRunner, error) {
 	r := &ScriptRunner{
-		ScriptPath:    scriptPath,
-		ScriptName:    filepath.Base(scriptPath[:len(scriptPath)-4]), // Remove .lua
-		device:        dev,
-		configDir:     configDir,
-		restartPolicy: RestartAlways,
+		ScriptPath:      scriptPath,
+		ScriptName:      filepath.Base(scriptPath[:len(scriptPath)-4]), // Remove .lua
+		device:          dev,
+		configDir:       configDir,
+		packageLibPaths: packageLibPaths,
+		store:           store,
+		restartPolicy:   RestartAlways,
 		tablePool: sync.Pool{
 			New: func() interface{} {
 				return &lua.LTable{}
@@ -158,6 +180,7 @@ func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string
 	r.hasBackground = r.module.RawGetString("background").Type() == lua.LTFunction
 	r.hasPassive = r.module.RawGetString("passive").Type() == lua.LTFunction
 	r.hasTrigger = r.module.RawGetString("trigger").Type() == lua.LTFunction
+	r.hasDaemon = r.module.RawGetString("daemon").Type() == lua.LTFunction
 	r.hasT1Passive = r.module.RawGetString("t1_passive").Type() == lua.LTFunction
 	r.hasT1Trigger = r.module.RawGetString("t1_trigger").Type() == lua.LTFunction
 	r.hasT2Passive = r.module.RawGetString("t2_passive").Type() == lua.LTFunction
@@ -205,6 +228,25 @@ func (r *ScriptRunner) registerModules() {
 	lualib.RegisterTime(r.L)
 	lualib.RegisterLog(r.L)
 
+	// Register the shared cross-script store if one was provided.
+	if r.store != nil {
+		r.L.PreloadModule("store", r.store.Loader)
+	}
+
+	// Extend package.path with every .packages/*/lib/ directory so that
+	// require('mylib') resolves to the installed package's library file.
+	if len(r.packageLibPaths) > 0 {
+		pkg := r.L.GetGlobal("package")
+		if pkgTable, ok := pkg.(*lua.LTable); ok {
+			current := r.L.GetField(pkgTable, "path").String()
+			extra := ""
+			for _, libDir := range r.packageLibPaths {
+				extra += filepath.Join(libDir, "?.lua") + ";"
+			}
+			r.L.SetField(pkgTable, "path", lua.LString(extra+current))
+		}
+	}
+
 	// Set globals
 	r.L.SetGlobal("SCRIPT_PATH", lua.LString(r.ScriptPath))
 	r.L.SetGlobal("SCRIPT_NAME", lua.LString(r.ScriptName))
@@ -246,6 +288,9 @@ func (r *ScriptRunner) putTable(tbl *lua.LTable) {
 // HasBackground returns true if script defines background().
 func (r *ScriptRunner) HasBackground() bool { return r.hasBackground }
 
+// HasDaemon returns true if script defines daemon().
+func (r *ScriptRunner) HasDaemon() bool { return r.hasDaemon }
+
 // HasPassive returns true if script defines passive().
 func (r *ScriptRunner) HasPassive() bool { return r.hasPassive }
 
@@ -264,7 +309,7 @@ func (r *ScriptRunner) HasT2Passive() bool { return r.hasT2Passive }
 // HasT2Trigger returns true if script defines t2_trigger().
 func (r *ScriptRunner) HasT2Trigger() bool { return r.hasT2Trigger }
 
-// StartBackground starts the background worker goroutine.
+// StartBackground starts the background() coroutine worker goroutine.
 func (r *ScriptRunner) StartBackground(parentCtx context.Context) {
 	if !r.hasBackground {
 		return
@@ -278,6 +323,48 @@ func (r *ScriptRunner) StartBackground(parentCtx context.Context) {
 
 	r.bgCtx, r.bgCancel = context.WithCancel(parentCtx)
 	r.bgRunning = true
+	r.bgFuncName = "background"
+	r.mu.Unlock()
+
+	go r.backgroundLoop()
+}
+
+// StartDaemon starts the daemon() coroutine worker goroutine.
+// Daemon scripts are package-level background workers: they run permanently,
+// have full access to the shared store, and keep the store populated so that
+// button scripts can read the data without doing their own polling.
+//
+// A daemon script returns a module table with a single "daemon" function:
+//
+//	local store = require('store')
+//	local http  = require('http')
+//	local M = {}
+//
+//	function M.daemon(state)
+//	    while true do
+//	        local ok, body = http.get('http://localhost:4455/status')
+//	        if ok then
+//	            store.set('obs.streaming', body.streaming)
+//	        end
+//	        system.sleep(2000)
+//	    end
+//	end
+//
+//	return M
+func (r *ScriptRunner) StartDaemon(parentCtx context.Context) {
+	if !r.hasDaemon {
+		return
+	}
+
+	r.mu.Lock()
+	if r.bgRunning {
+		r.mu.Unlock()
+		return
+	}
+
+	r.bgCtx, r.bgCancel = context.WithCancel(parentCtx)
+	r.bgRunning = true
+	r.bgFuncName = "daemon"
 	r.mu.Unlock()
 
 	go r.backgroundLoop()
@@ -387,7 +474,11 @@ func (r *ScriptRunner) runBackgroundCoroutine() (bool, int, error) {
 	r.mu.Lock()
 
 	// Get background function
-	fn := r.module.RawGetString("background")
+	fnName := r.bgFuncName
+	if fnName == "" {
+		fnName = "background"
+	}
+	fn := r.module.RawGetString(fnName)
 
 	if fn.Type() != lua.LTFunction {
 		r.mu.Unlock()
