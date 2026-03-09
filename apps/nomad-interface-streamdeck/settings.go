@@ -8,9 +8,9 @@ package main
 // Layout (5-col × 3-row MK.2 example):
 //
 //	Col 0 (reserved)  Col 1      Col 2      Col 3      Col 4
-//	Row 0:  [BACK]    [BRT-]    [B:XX%]   [BRT+]    [     ]
-//	Row 1:  [     ]   [TMO-]   [T:XXs]   [TMO+]    [     ]
-//	Row 2:  [     ]   [EXIT]    [     ]   [     ]   [     ]
+//	Row 0:  [BACK]   [EXIT]    [     ]   [     ]   [OPENDIR]
+//	Row 1:  [     ]  [BRT-]   [B:XX%]   [BRT+]    [     ]
+//	Row 2:  [     ]  [TMO-]   [T:XXs]   [TMO+]    [     ]
 //
 // Brightness steps: ±5, clamped to [5, 100].
 // Timeout cycles:   0 (never) → 30 → 60 → 120 → 300 → 0 …
@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/merith-tk/nomad/pkg/streamdeck"
 )
@@ -29,16 +31,24 @@ import (
 var timeoutValues = []int{0, 30, 60, 120, 300}
 
 // Settings content-key slot indices (positions within contentKeys slice).
+// Slots map to content keys left-to-right, row by row, skipping col-0 reserved keys.
 const (
-	sSlotBrtDown = 0 // BRT-
-	sSlotBrtVal  = 1 // B:XX%  (display only)
-	sSlotBrtUp   = 2 // BRT+
-	// slot 3 is empty
-	sSlotTmoDown = 4 // TMO-
-	sSlotTmoVal  = 5 // timeout value display
-	sSlotTmoUp   = 6 // TMO+
-	// slot 7 is empty
-	sSlotExit = 8 // EXIT (kill connection)
+	// Row 0 – system buttons
+	sSlotExit = 0 // EXIT  (row 0, col 1)
+	// slots 1, 2 intentionally empty
+	sSlotOpenDir = 3 // OPEN CONFIG DIR (row 0, col 4 – top-right)
+
+	// Row 1 – brightness
+	sSlotBrtDown = 4 // BRT-
+	sSlotBrtVal  = 5 // B:XX%  (display only)
+	sSlotBrtUp   = 6 // BRT+
+	// slot 7 empty
+
+	// Row 2 – timeout
+	sSlotTmoDown = 8  // TMO-
+	sSlotTmoVal  = 9  // timeout value display
+	sSlotTmoUp   = 10 // TMO+
+	// slot 11 empty
 )
 
 // enterSettings switches the App into settings mode and renders the settings page.
@@ -102,21 +112,22 @@ func (a *App) renderSettingsPage() {
 		a.device.SetImage(contentKeys[slot], img)
 	}
 
-	// ── Brightness row ────────────────────────────────────────────────────────
+	// ── System row (row 0) ────────────────────────────────────────────────────
+	setSlot(sSlotExit, "EXIT", color.RGBA{140, 20, 20, 255}, color.RGBA{255, 180, 180, 255})
+	setSlot(sSlotOpenDir, "CFGDIR", color.RGBA{20, 80, 80, 255}, color.RGBA{160, 230, 230, 255})
+
+	// ── Brightness row (row 1) ────────────────────────────────────────────────
 	setSlot(sSlotBrtDown, "BRT-", color.RGBA{40, 40, 120, 255}, color.RGBA{160, 160, 255, 255})
 	setSlot(sSlotBrtVal,
 		fmt.Sprintf("B:%d%%", a.config.Application.Brightness),
 		color.RGBA{20, 20, 60, 255}, color.RGBA{200, 200, 255, 255})
 	setSlot(sSlotBrtUp, "BRT+", color.RGBA{40, 40, 120, 255}, color.RGBA{160, 160, 255, 255})
 
-	// ── Timeout row ───────────────────────────────────────────────────────────
+	// ── Timeout row (row 2) ───────────────────────────────────────────────────
 	setSlot(sSlotTmoDown, "TMO-", color.RGBA{40, 80, 40, 255}, color.RGBA{160, 255, 160, 255})
 	tmoText := fmtTimeout(a.config.Application.Timeout)
 	setSlot(sSlotTmoVal, tmoText, color.RGBA{20, 40, 20, 255}, color.RGBA{160, 255, 160, 255})
 	setSlot(sSlotTmoUp, "TMO+", color.RGBA{40, 80, 40, 255}, color.RGBA{160, 255, 160, 255})
-
-	// ── Actions row ──────────────────────────────────────────────────────────
-	setSlot(sSlotExit, "EXIT", color.RGBA{140, 20, 20, 255}, color.RGBA{255, 180, 180, 255})
 }
 
 // handleSettingsKeyEvent processes a key press while in settings mode.
@@ -156,6 +167,16 @@ func (a *App) handleSettingsKeyEvent(keyIndex int) error {
 	}
 
 	switch slot {
+	case sSlotExit:
+		fmt.Println("[*] EXIT pressed – shutting down")
+		a.cancel()
+		return nil
+	case sSlotOpenDir:
+		fmt.Printf("[*] Opening config directory: %s\n", a.configPath)
+		if err := openConfigDir(a.configPath); err != nil {
+			log.Printf("openConfigDir: %v", err)
+		}
+		return nil
 	case sSlotBrtDown:
 		a.adjustBrightness(-5)
 	case sSlotBrtUp:
@@ -164,10 +185,6 @@ func (a *App) handleSettingsKeyEvent(keyIndex int) error {
 		a.stepTimeout(-1)
 	case sSlotTmoUp:
 		a.stepTimeout(+1)
-	case sSlotExit:
-		fmt.Println("[*] EXIT pressed – shutting down")
-		a.cancel()
-		return nil
 	default:
 		// Unbound key – ignore
 		return nil
@@ -231,4 +248,19 @@ func fmtTimeout(seconds int) string {
 		return fmt.Sprintf("T:%ds", seconds)
 	}
 	return fmt.Sprintf("T:%dm", seconds/60)
+}
+
+// openConfigDir opens the given directory in the system's default file manager
+// (Explorer on Windows, Finder/open on macOS, xdg-open on Linux).
+func openConfigDir(dir string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", filepath.ToSlash(dir))
+	case "darwin":
+		cmd = exec.Command("open", dir)
+	default:
+		cmd = exec.Command("xdg-open", dir)
+	}
+	return cmd.Start()
 }
