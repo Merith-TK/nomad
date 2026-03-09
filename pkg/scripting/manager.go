@@ -155,7 +155,7 @@ func (m *ScriptManager) Boot(ctx context.Context) error {
 			if pkg.DaemonScript == "" {
 				continue
 			}
-			dRunner, dErr := NewScriptRunner(pkg.DaemonScript, m.device, m.configDir, m.packageLibPaths, m.store)
+			dRunner, dErr := NewScriptRunner(pkg.DaemonScript, m.device, m.configDir, m.packageLibPaths, m.store, pkg.DataDir)
 			if dErr != nil {
 				fmt.Printf("[!] Package %s: failed to load daemon: %v\n", pkg.Manifest.ID, dErr)
 				continue
@@ -183,9 +183,15 @@ func (m *ScriptManager) Boot(ctx context.Context) error {
 
 	// Scan for all .lua files recursively
 	var scriptPaths []string
+	packagesDir := filepath.Join(m.configDir, ".packages")
 	err := filepath.Walk(m.configDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors
+		}
+		// Skip the entire .packages/ tree – those scripts are managed
+		// separately as daemon runners and Lua library files, not deck buttons.
+		if info.IsDir() && filepath.Clean(path) == filepath.Clean(packagesDir) {
+			return filepath.SkipDir
 		}
 		if info.IsDir() {
 			return nil
@@ -205,7 +211,7 @@ func (m *ScriptManager) Boot(ctx context.Context) error {
 	// Load each script
 	loaded := 0
 	for _, scriptPath := range scriptPaths {
-		runner, err := NewScriptRunner(scriptPath, m.device, m.configDir, m.packageLibPaths, m.store)
+		runner, err := NewScriptRunner(scriptPath, m.device, m.configDir, m.packageLibPaths, m.store, "")
 		if err != nil {
 			fmt.Printf("[!] Failed to load %s: %v\n", filepath.Base(scriptPath), err)
 			continue
@@ -243,7 +249,7 @@ func (m *ScriptManager) runBootAnimation() {
 		return
 	}
 
-	runner, err := NewScriptRunner(m.bootScriptPath, m.device, m.configDir, m.packageLibPaths, m.store)
+	runner, err := NewScriptRunner(m.bootScriptPath, m.device, m.configDir, m.packageLibPaths, m.store, "")
 	if err != nil {
 		fmt.Printf("[!] Boot animation failed: %v\n", err)
 		return

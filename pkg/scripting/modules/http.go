@@ -99,6 +99,8 @@ func (m *HTTPModule) httpRequest(L *lua.LState) int {
 	url := L.CheckString(2)
 	headers := L.OptTable(3, nil)
 	body := L.OptString(4, "")
+	// Optional 5th argument: timeout in milliseconds (0 = use client default).
+	timeoutMs := L.OptInt(5, 0)
 
 	req, err := http.NewRequest(method, url, strings.NewReader(body))
 	if err != nil {
@@ -113,7 +115,16 @@ func (m *HTTPModule) httpRequest(L *lua.LState) int {
 		})
 	}
 
-	resp, err := m.client.Do(req)
+	// Use a per-request client with custom timeout when requested.
+	client := m.client
+	if timeoutMs > 0 {
+		client = &http.Client{
+			Transport: m.client.Transport,
+			Timeout:   time.Duration(timeoutMs) * time.Millisecond,
+		}
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))

@@ -97,6 +97,13 @@ type ScannedPackage struct {
 	// DaemonScript is the absolute path to the daemon Lua script, or empty
 	// string when the package ships no daemon.
 	DaemonScript string
+
+	// DataDir is the absolute path to the package's persistent data directory:
+	//   <configDir>/.packages/<vendor.pkg>/data/
+	// This directory is created by ScanPackages if it does not yet exist.
+	// It is passed to daemon runners as their packageDataDir so they receive
+	// the pkg_data module scoped to this path.
+	DataDir string
 }
 
 // ScanPackages reads <configDir>/.packages/ and returns all installed packages
@@ -161,6 +168,14 @@ func ScanPackages(configDir string) ([]*ScannedPackage, error) {
 		default:
 			// Manifest-specified path (relative to package root).
 			pkg.DaemonScript = filepath.Join(pkgDir, pkg.Manifest.Daemon)
+		}
+
+		// Resolve and pre-create the package data directory.
+		// This is always <pkgDir>/data/ regardless of the manifest.
+		pkg.DataDir = filepath.Join(pkgDir, "data")
+		if err := os.MkdirAll(pkg.DataDir, 0755); err != nil {
+			fmt.Printf("[!] Package %s: failed to create data dir: %v\n", pkg.Manifest.ID, err)
+			pkg.DataDir = "" // daemon will proceed without pkg_data
 		}
 
 		packages = append(packages, pkg)

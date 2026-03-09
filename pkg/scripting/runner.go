@@ -123,6 +123,11 @@ type ScriptRunner struct {
 	packageLibPaths []string
 	store           *modules.StoreModule
 
+	// packageDataDir is the absolute path to this package's data/ directory.
+	// When non-empty, the pkg_data module is preloaded and scoped to this dir.
+	// Empty for normal button/directory scripts, which have no write access.
+	packageDataDir string
+
 	// Refresh callback (called when script wants display update)
 	onRefresh func()
 }
@@ -135,7 +140,11 @@ type ScriptRunner struct {
 //
 // store is the shared cross-script key-value store exposed as require('store');
 // pass nil to disable the store module (e.g. for isolated test runners).
-func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string, packageLibPaths []string, store *modules.StoreModule) (*ScriptRunner, error) {
+//
+// packageDataDir is the absolute path to the package's data/ directory.
+// When non-empty the pkg_data module is preloaded and scoped to that directory.
+// Pass an empty string for normal button/directory scripts.
+func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string, packageLibPaths []string, store *modules.StoreModule, packageDataDir string) (*ScriptRunner, error) {
 	r := &ScriptRunner{
 		ScriptPath:      scriptPath,
 		ScriptName:      filepath.Base(scriptPath[:len(scriptPath)-4]), // Remove .lua
@@ -143,6 +152,7 @@ func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string
 		configDir:       configDir,
 		packageLibPaths: packageLibPaths,
 		store:           store,
+		packageDataDir:  packageDataDir,
 		restartPolicy:   RestartAlways,
 		tablePool: sync.Pool{
 			New: func() interface{} {
@@ -231,6 +241,18 @@ func (r *ScriptRunner) registerModules() {
 	// Register the shared cross-script store if one was provided.
 	if r.store != nil {
 		r.L.PreloadModule("store", r.store.Loader)
+	}
+
+	// Register the package-scoped data module when this script is a package script.
+	// Regular button/directory scripts have packageDataDir == "" and never receive
+	// this module, so they cannot write to the package data directory directly.
+	if r.packageDataDir != "" {
+		pkgData, err := modules.NewPackageDataModule(r.packageDataDir)
+		if err != nil {
+			fmt.Printf("[!] pkg_data: failed to init data dir for %s: %v\n", r.ScriptName, err)
+		} else {
+			r.L.PreloadModule("pkg_data", pkgData.Loader)
+		}
 	}
 
 	// Extend package.path with every .packages/*/lib/ directory so that
