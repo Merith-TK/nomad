@@ -130,6 +130,14 @@ type ScriptRunner struct {
 
 	// Refresh callback (called when script wants display update)
 	onRefresh func()
+
+	// passiveCache holds the most recently rendered appearance per passive
+	// function name ("passive", "t1_passive", "t2_passive").
+	//
+	// Written only while luaMu is held (successful passive run).
+	// Read only when luaMu cannot be acquired (background is busy).
+	// These two cases are mutually exclusive, so no additional mutex is needed.
+	passiveCache map[string]*KeyAppearance
 }
 
 // NewScriptRunner creates a runner for a Lua script.
@@ -154,6 +162,7 @@ func NewScriptRunner(scriptPath string, dev *streamdeck.Device, configDir string
 		store:           store,
 		packageDataDir:  packageDataDir,
 		restartPolicy:   RestartAlways,
+		passiveCache:    make(map[string]*KeyAppearance),
 		tablePool: sync.Pool{
 			New: func() interface{} {
 				return &lua.LTable{}
@@ -639,18 +648,28 @@ func (r *ScriptRunner) parseAppearance(tbl *lua.LTable) *KeyAppearance {
 }
 
 // runNamedPassive calls fnName(keyIndex, state) and returns the parsed appearance.
-// It tries to acquire luaMu; if held, it returns (nil, nil) to skip this tick.
+//
+// Lock strategy:
+//   - TryLock on luaMu: if background holds the VM, skip Lua execution entirely
+//     and return the cached appearance from the last successful run instead of
+//     nil. This keeps the display showing stale-but-valid data rather than
+//     blanking during a background HTTP call or long computation.
+//   - On successful run: cache the result so future missed ticks can use it.
 func (r *ScriptRunner) runNamedPassive(fnName string, keyIndex int) (*KeyAppearance, error) {
 	if !r.luaMu.TryLock() {
-		return nil, nil // Lua VM busy – skip this tick
+		// Lua VM busy (background worker running) – return cached appearance.
+		r.mu.RLock()
+		cached := r.passiveCache[fnName]
+		r.mu.RUnlock()
+		return cached, nil
 	}
 	defer r.luaMu.Unlock()
 
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 
 	fn := r.module.RawGetString(fnName)
 	if fn.Type() != lua.LTFunction {
+		r.mu.RUnlock()
 		return nil, nil
 	}
 
@@ -659,6 +678,7 @@ func (r *ScriptRunner) runNamedPassive(fnName string, keyIndex int) (*KeyAppeara
 	r.L.Push(r.state)
 
 	if err := r.L.PCall(2, 1, nil); err != nil {
+		r.mu.RUnlock()
 		return nil, err
 	}
 
@@ -666,10 +686,19 @@ func (r *ScriptRunner) runNamedPassive(fnName string, keyIndex int) (*KeyAppeara
 	r.L.Pop(1)
 
 	if ret.Type() != lua.LTTable {
+		r.mu.RUnlock()
 		return nil, nil
 	}
 
-	return r.parseAppearance(ret.(*lua.LTable)), nil
+	appearance := r.parseAppearance(ret.(*lua.LTable))
+	r.mu.RUnlock()
+
+	// Cache the result under a write lock so future lock-miss ticks can return it.
+	r.mu.Lock()
+	r.passiveCache[fnName] = appearance
+	r.mu.Unlock()
+
+	return appearance, nil
 }
 
 // RunPassive calls passive(key, state) and returns appearance.

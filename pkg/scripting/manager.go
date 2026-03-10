@@ -65,11 +65,15 @@ type ScriptManager struct {
 	// Passive loop
 	passiveRunning bool
 	visibleScripts map[string]int // script path -> key index (currently visible)
-	refreshPending bool           // flag for coalesced refresh requests
 
 	// Passive update batching
 	lastPassiveUpdate time.Time
 	passiveBatch      map[string]*KeyAppearance // batched updates
+
+	// refreshCh is a buffered channel (capacity 1) used by scripts to request
+	// an out-of-band passive update between ticker ticks.
+	// requestRefresh() sends a non-blocking signal; passiveLoop drains it.
+	refreshCh chan struct{}
 
 	// Boot animation
 	bootScriptPath string
@@ -97,6 +101,7 @@ func NewScriptManager(dev *streamdeck.Device, configDir string, passiveFPS int) 
 		visibleScripts: make(map[string]int),
 		passiveBatch:   make(map[string]*KeyAppearance),
 		store:          modules.NewStoreModule(),
+		refreshCh:      make(chan struct{}, 1),
 	}
 }
 
@@ -285,6 +290,9 @@ func (m *ScriptManager) StartPassiveLoop() {
 }
 
 // passiveLoop runs passive functions at the configured FPS.
+// It also listens on refreshCh for out-of-band update requests from scripts
+// (e.g. after a background worker updates the shared store) and processes them
+// immediately without waiting for the next ticker tick.
 func (m *ScriptManager) passiveLoop() {
 	fps := m.passiveFPS
 	if fps <= 0 {
@@ -295,6 +303,12 @@ func (m *ScriptManager) passiveLoop() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	runTick := func() {
+		m.runPassiveUpdate()
+		m.runTogglePassive()
+		m.processBatchedUpdates()
+	}
+
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -303,11 +317,19 @@ func (m *ScriptManager) passiveLoop() {
 			m.mu.Unlock()
 			return
 		case <-ticker.C:
-			m.runPassiveUpdate()
-			m.runTogglePassive() // always runs, even when no content scripts are visible
-
-			// Process batched updates (limit to prevent blocking)
-			m.processBatchedUpdates(5) // Process up to 5 updates per tick
+			runTick()
+		case <-m.refreshCh:
+			// A script called system.refresh() – process immediately.
+			// Drain any additional signals that stacked up while we were busy.
+			runTick()
+			for {
+				select {
+				case <-m.refreshCh:
+				default:
+					goto drained
+				}
+			}
+		drained:
 		}
 	}
 }
@@ -345,7 +367,6 @@ func (m *ScriptManager) runPassiveUpdate() {
 			}
 
 			if appearance != nil {
-				// Batch the update instead of calling callback immediately
 				m.batchUpdate(scriptPath, appearance)
 			}
 		}(scriptPath, keyIndex)
@@ -353,56 +374,34 @@ func (m *ScriptManager) runPassiveUpdate() {
 	wg.Wait()
 }
 
-// runPassiveUpdate calls passive() on all visible content-key scripts concurrently. adds an update to the batch queue.
+// batchUpdate queues a passive appearance update for delivery in the next processBatchedUpdates call.
 func (m *ScriptManager) batchUpdate(scriptPath string, appearance *KeyAppearance) {
 	m.mu.Lock()
 	m.passiveBatch[scriptPath] = appearance
 	m.mu.Unlock()
 }
 
-// processBatchedUpdates processes queued passive updates.
-func (m *ScriptManager) processBatchedUpdates(maxUpdates int) {
+// processBatchedUpdates flushes all queued passive-update results to the
+// key-update callback in one pass. There is no per-tick cap: every pending
+// update is delivered before the next passive cycle begins.
+func (m *ScriptManager) processBatchedUpdates() {
 	m.mu.Lock()
-	batch := make(map[string]*KeyAppearance)
-	for k, v := range m.passiveBatch {
-		batch[k] = v
-	}
-	// Clear the batch
+	batch := m.passiveBatch
 	m.passiveBatch = make(map[string]*KeyAppearance)
 	callback := m.onKeyUpdate
 	m.mu.Unlock()
 
-	if callback == nil {
+	if callback == nil || len(batch) == 0 {
 		return
 	}
 
-	// Process updates
-	processed := 0
 	for scriptPath, appearance := range batch {
-		if processed >= maxUpdates {
-			break
-		}
-
-		// Find the key index for this script
 		m.mu.RLock()
 		keyIndex, visible := m.visibleScripts[scriptPath]
 		m.mu.RUnlock()
-
 		if visible {
 			callback(keyIndex, appearance)
-			processed++
 		}
-	}
-
-	// Re-queue remaining updates if we hit the limit
-	if len(batch) > processed {
-		m.mu.Lock()
-		for scriptPath, appearance := range batch {
-			if _, alreadyProcessed := m.passiveBatch[scriptPath]; !alreadyProcessed {
-				m.passiveBatch[scriptPath] = appearance
-			}
-		}
-		m.mu.Unlock()
 	}
 }
 
@@ -561,12 +560,14 @@ func (m *ScriptManager) RefreshScript(scriptPath string) {
 	callback(keyIndex, appearance)
 }
 
-// requestRefresh is called when a script wants a display refresh.
-// Sets a flag that will be picked up by the next passive loop tick.
+// requestRefresh is called when a script calls system.refresh().
+// It sends a non-blocking signal on refreshCh so the passive loop wakes
+// up immediately rather than waiting for the next ticker tick.
 func (m *ScriptManager) requestRefresh() {
-	m.mu.Lock()
-	m.refreshPending = true
-	m.mu.Unlock()
+	select {
+	case m.refreshCh <- struct{}{}:
+	default: // already a signal pending—don't block
+	}
 }
 
 // Shutdown stops all runners and cleans up.

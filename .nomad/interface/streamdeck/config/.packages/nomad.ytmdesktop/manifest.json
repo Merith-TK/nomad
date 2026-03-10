@@ -8,7 +8,12 @@
 			"lib/ytm.lua"
 		],
 		"buttons": [
-			"buttons/pair.lua"
+			"buttons/pair.lua",
+			"buttons/play_pause.lua",
+			"buttons/next.lua",
+			"buttons/prev.lua",
+			"buttons/like.lua",
+			"buttons/shuffle.lua"
 		]
 	},
 	"requires": []

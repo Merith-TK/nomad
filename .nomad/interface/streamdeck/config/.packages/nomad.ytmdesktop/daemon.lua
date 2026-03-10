@@ -61,12 +61,18 @@ local function post_json(url, payload, token, timeout_ms)
 end
 
 -- get_json: GET with optional auth header; returns (table|nil, status_code).
+-- status_code is 0 on hard network error, -1 on successful HTTP but JSON parse
+-- failure (to distinguish from real connection problems).
 local function get_json(url, token)
     local headers = {}
     if token then headers["Authorization"] = token end
     local body, status = http.request("GET", url, headers, "", 0)
     if not body then return nil, 0 end
-    local t = json.decode(body)
+    local t, decode_err = json.decode(body)
+    if not t then
+        log.error("[ytm] GET JSON decode failed (" .. tostring(decode_err) .. ") body: " .. string.sub(tostring(body), 1, 200))
+        return nil, -1  -- special code: HTTP worked but parse failed
+    end
     return t, status
 end
 
@@ -143,7 +149,7 @@ local function push_state(s)
         store.set('ytm.artist',      video.author         or "")
         store.set('ytm.album',       video.album          or "")
         store.set('ytm.duration',    video.durationSeconds or 0)
-        store.set('ytm.like_status', video.likeStatus     or 0)
+        store.set('ytm.like_status', video.likeStatus     or -1)
         -- Pick the largest available thumbnail (last entry in array).
         local thumbs = video.thumbnails
         if thumbs and #thumbs > 0 then
@@ -178,7 +184,7 @@ function M.daemon(state)
     store.set('ytm.volume',         0)
     store.set('ytm.progress',       0)
     store.set('ytm.duration',       0)
-    store.set('ytm.like_status',    0)
+    store.set('ytm.like_status',    -1)
     store.set('ytm.thumbnail',      "")
 
     -- Load previously saved token from package-private data storage.
@@ -223,6 +229,11 @@ function M.daemon(state)
             elseif status == 200 and s then
                 store.set('ytm._token_revoked', false)
                 push_state(s)
+
+            elseif status == -1 then
+                -- HTTP worked but we couldn't parse the response – don't
+                -- treat this as a full disconnect; just retry at normal rate.
+                log.warn("[ytm] /state parse error – retrying next poll.")
 
             else
                 -- YTM Desktop stopped or network hiccup.

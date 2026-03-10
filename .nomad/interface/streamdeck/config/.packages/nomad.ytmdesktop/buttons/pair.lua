@@ -52,7 +52,7 @@ function M.passive(key, state)
 
     if ytm.connected() then
         return {
-            text       = "✓ YTM",
+            text       = "YTM",
             color      = COL.connected.bg,
             text_color = COL.connected.fg,
         }
