@@ -4,6 +4,7 @@
 
 local system = require("system")
 local shell  = require("shell")
+local time   = require("time")
 
 local script = {}
 
@@ -18,10 +19,9 @@ end
 function script.background(state)
     while true do
         if state.confirming then
-            local now = os.time()
-            if now - (state.confirm_time or 0) > 3 then
+            if (time.now() - (state.confirm_time or 0)) > 3 then
                 state.confirming = false
-                print("Shutdown: confirmation timed out")
+                system.refresh()
             end
         end
         system.sleep(500)
@@ -31,18 +31,17 @@ end
 function script.trigger(state)
     if state.confirming then
         state.confirming = false
-        print("Shutdown confirmed!")
-        -- Uncomment to enable:
-        if system.os() == "windows" then
-            shell.exec("shutdown /s /t 60 /c \"Shutdown initiated from Stream Deck\"")
-        else
-            shell.exec("shutdown -h now")
-        end
+        -- Uncomment to enable actual shutdown:
+        -- if system.os() == "windows" then
+        --     shell.exec("shutdown /s /t 60 /c \"Shutdown initiated from Stream Deck\"")
+        -- else
+        --     shell.exec("shutdown -h now")
+        -- end
     else
         state.confirming   = true
-        state.confirm_time = os.time()
-        print("Shutdown: press again within 3 seconds to confirm")
+        state.confirm_time = time.now()
     end
+    system.refresh()
 end
 
 return script

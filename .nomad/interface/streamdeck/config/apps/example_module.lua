@@ -14,13 +14,14 @@
     shell      - exec, exec_async, open, terminal
     system     - os, env, hostname, sleep (background only), refresh
     http       - get, post, request
-    streamdeck - set_color, set_brightness, clear, get_layout, ...
-    file       - read, write, exists, list, isdir, size
+    streamdeck - set_color, set_brightness, clear, get_layout, get_keys
+    file       - read, write, append, exists, list, is_dir, size, remove, mkdir
     time       - now, date, format, parse, sleep (safe anywhere)
     json       - encode, decode
     log        - info, warn, error, debug, printf
     utils      - deepcopy, contains, size, merge
     strings    - split, trim, startswith, endswith, replace, upper, lower, ...
+    store      - get, set, delete, has, keys  (shared across ALL scripts)
 ]]
 
 local system = require("system")
@@ -52,17 +53,17 @@ end
 
 --[[
   script.passive(key, state) -> table|nil
-  Called at the passive FPS (default 2 fps) while the key is on-screen.
+  Called at the passive FPS (default 30 fps) while the key is on-screen.
   Return an appearance table to update the key, or nil to leave it unchanged.
 
   Appearance fields (all optional):
-    color      = {r, g, b}          -- background fill (0-255 each)
-    text       = "string"           -- label; \n for multi-line
-    text_color = {r, g, b}          -- label colour (default: white)
-    image      = "path" or "https://..."  -- overrides color/text
+    color      = {r, g, b}     -- background fill (0-255 each)
+    text       = "string"      -- label; \n for multi-line
+    text_color = {r, g, b}     -- label colour (default: white)
+    image      = "path"        -- relative .png/.jpg path; overrides color/text
 
-  Keep passive() fast — it runs on every tick with no caching between calls.
-  Never do I/O or heavy computation here; use background() + state for that.
+  Keep passive() fast — never do shell/http/file I/O here.
+  Use background() to fetch data, store it in state, and call system.refresh().
 ]]
 function script.passive(key, state)
     return {
@@ -84,7 +85,7 @@ function script.trigger(state)
     -- Toggle colour on every press
     color = click_count % 2 == 0 and {0, 255, 0} or {255, 0, 255}
     log.info("triggered, count=" .. click_count)
-    -- system.refresh()  -- uncomment to push the update immediately
+    system.refresh()  -- force an immediate passive redraw
 end
 
 return script
