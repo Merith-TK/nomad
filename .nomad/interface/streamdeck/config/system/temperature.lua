@@ -1,24 +1,18 @@
 -- temperature.lua - Shows CPU temperature (if available)
+-- background() polls the shell every 10s; passive() just reads state (fast).
 
-local shell = require("shell")
-local time  = require("time")
+local shell  = require("shell")
 local system = require("system")
 
 local script = {}
 
-function script.passive(key, state)
-    local now = time.now()
-    if not state.last_update then
-        state.last_update = now
-        return { color = {0, 255, 0}, text = "TEMP\n--°C", text_color = {255, 255, 255} }
-    elseif (now - state.last_update) >= 10 then
-        state.last_update = now
-
+function script.background(state)
+    while true do
         if system.os() ~= "windows" then
             -- Try /sys/class/thermal (Linux / Raspberry Pi)
             local out, _, code = shell.exec("cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo '0'")
             if code == 0 then
-                local raw = tonumber(out:match("([%d]+)"))
+                local raw = tonumber((out or ""):match("([%d]+)"))
                 if raw and raw > 0 then
                     state.temperature = raw / 1000
                 end
@@ -28,15 +22,19 @@ function script.passive(key, state)
             if not state.temperature then
                 out, _, code = shell.exec("vcgencmd measure_temp 2>/dev/null | sed 's/temp=//' | sed \"s/'C//\"")
                 if code == 0 then
-                    state.temperature = tonumber(out:match("([%d%.]+)"))
+                    state.temperature = tonumber((out or ""):match("([%d%.]+)"))
                 end
             end
         else
-            -- Windows: temperature not easily available, set to 0
+            -- Windows: temperature not easily available
             state.temperature = 0
         end
+        system.refresh()
+        system.sleep(10000)
     end
+end
 
+function script.passive(key, state)
     local temp  = state.temperature or 0
     local color = {0, 255, 0}
     if temp > 70 then
@@ -44,8 +42,7 @@ function script.passive(key, state)
     elseif temp > 55 then
         color = {255, 165, 0}
     end
-
-    local display = temp > 0 and string.format("%.0f", temp) or "--"
+    local display = state.temperature and string.format("%.0f", temp) or "--"
     return { color = color, text = string.format("TEMP\n%s°C", display), text_color = {255, 255, 255} }
 end
 

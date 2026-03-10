@@ -9,12 +9,16 @@ local script = {}
 
 function script.background(state)
     while true do
+        local prev = state.running
         if system.os() == "windows" then
             local out, _, code = shell.exec("tasklist /FI \"IMAGENAME eq nano.exe\" /NH 2>nul")
             state.running = (code == 0 and out:find("nano.exe") ~= nil)
         else
-            local out, _, code = shell.exec("pgrep nano >/dev/null 2>&1")
+            local _, _, code = shell.exec("pgrep nano >/dev/null 2>&1")
             state.running = (code == 0)
+        end
+        if state.running ~= prev then
+            system.refresh()
         end
         system.sleep(2000)
     end

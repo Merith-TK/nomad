@@ -33,7 +33,7 @@ import (
 
 const (
 	// DefaultPassiveFPS is the default rate at which passive functions are called.
-	DefaultPassiveFPS = 10
+	DefaultPassiveFPS = 30
 )
 
 // ScriptManager coordinates all script runners and the passive loop.
@@ -66,14 +66,17 @@ type ScriptManager struct {
 	passiveRunning bool
 	visibleScripts map[string]int // script path -> key index (currently visible)
 
-	// Passive update batching
-	lastPassiveUpdate time.Time
-	passiveBatch      map[string]*KeyAppearance // batched updates
-
 	// refreshCh is a buffered channel (capacity 1) used by scripts to request
 	// an out-of-band passive update between ticker ticks.
 	// requestRefresh() sends a non-blocking signal; passiveLoop drains it.
 	refreshCh chan struct{}
+
+	// lastDelivered tracks the most recently rendered appearance per deliver key.
+	// deliverUpdate compares each new result against this cache; identical
+	// appearances skip the image encode + USB write entirely.
+	// Cleared on SetVisibleScripts (page navigation) so all keys repaint fresh.
+	// Toggle keys use "<scriptPath>|t1" / "<scriptPath>|t2" as their keys.
+	lastDelivered map[string]*KeyAppearance
 
 	// Boot animation
 	bootScriptPath string
@@ -99,7 +102,7 @@ func NewScriptManager(dev *streamdeck.Device, configDir string, passiveFPS int) 
 		passiveFPS:     passiveFPS,
 		runners:        make(map[string]*ScriptRunner),
 		visibleScripts: make(map[string]int),
-		passiveBatch:   make(map[string]*KeyAppearance),
+		lastDelivered:  make(map[string]*KeyAppearance),
 		store:          modules.NewStoreModule(),
 		refreshCh:      make(chan struct{}, 1),
 	}
@@ -306,7 +309,6 @@ func (m *ScriptManager) passiveLoop() {
 	runTick := func() {
 		m.runPassiveUpdate()
 		m.runTogglePassive()
-		m.processBatchedUpdates()
 	}
 
 	for {
@@ -334,7 +336,33 @@ func (m *ScriptManager) passiveLoop() {
 	}
 }
 
+// deliverUpdate applies the dirty check and fires the key-update callback for
+// one script. It is safe to call concurrently from multiple goroutines; the
+// device's own mutex serialises HID writes.
+//
+// deliverKey is the map key used in lastDelivered. For normal scripts it is
+// the script path; for toggle keys it is "<scriptPath>|t1" / "|t2".
+func (m *ScriptManager) deliverUpdate(deliverKey string, keyIndex int, appearance *KeyAppearance) {
+	m.mu.RLock()
+	last := m.lastDelivered[deliverKey]
+	callback := m.onKeyUpdate
+	m.mu.RUnlock()
+
+	if callback == nil || appearanceEqual(last, appearance) {
+		return
+	}
+
+	m.mu.Lock()
+	m.lastDelivered[deliverKey] = appearance
+	m.mu.Unlock()
+
+	callback(keyIndex, appearance)
+}
+
 // runPassiveUpdate calls passive() on all visible scripts concurrently.
+// Each goroutine delivers its result to the device the moment it is ready,
+// without waiting for other scripts to finish. USB writes are serialised by
+// the device's own mutex, so concurrent delivery is safe.
 func (m *ScriptManager) runPassiveUpdate() {
 	m.mu.RLock()
 	visible := make(map[string]int)
@@ -362,47 +390,27 @@ func (m *ScriptManager) runPassiveUpdate() {
 			}
 
 			appearance, err := runner.RunPassive(keyIndex)
-			if err != nil {
+			if err != nil || appearance == nil {
 				return
 			}
 
-			if appearance != nil {
-				m.batchUpdate(scriptPath, appearance)
-			}
+			// Deliver immediately – no batch, no wait for other scripts.
+			m.deliverUpdate(scriptPath, keyIndex, appearance)
 		}(scriptPath, keyIndex)
 	}
 	wg.Wait()
 }
 
-// batchUpdate queues a passive appearance update for delivery in the next processBatchedUpdates call.
-func (m *ScriptManager) batchUpdate(scriptPath string, appearance *KeyAppearance) {
-	m.mu.Lock()
-	m.passiveBatch[scriptPath] = appearance
-	m.mu.Unlock()
-}
-
-// processBatchedUpdates flushes all queued passive-update results to the
-// key-update callback in one pass. There is no per-tick cap: every pending
-// update is delivered before the next passive cycle begins.
-func (m *ScriptManager) processBatchedUpdates() {
-	m.mu.Lock()
-	batch := m.passiveBatch
-	m.passiveBatch = make(map[string]*KeyAppearance)
-	callback := m.onKeyUpdate
-	m.mu.Unlock()
-
-	if callback == nil || len(batch) == 0 {
-		return
+// appearanceEqual reports whether two KeyAppearance values are identical.
+// Used by processBatchedUpdates to skip unnecessary device writes.
+func appearanceEqual(a, b *KeyAppearance) bool {
+	if a == nil || b == nil {
+		return a == b
 	}
-
-	for scriptPath, appearance := range batch {
-		m.mu.RLock()
-		keyIndex, visible := m.visibleScripts[scriptPath]
-		m.mu.RUnlock()
-		if visible {
-			callback(keyIndex, appearance)
-		}
-	}
+	return a.Color == b.Color &&
+		a.Text == b.Text &&
+		a.TextColor == b.TextColor &&
+		a.Image == b.Image
 }
 
 // SetVisibleScripts updates which scripts are currently visible on the display.
@@ -415,6 +423,8 @@ func (m *ScriptManager) SetVisibleScripts(scripts map[string]int) {
 	for k, v := range scripts {
 		m.visibleScripts[k] = v
 	}
+	// Clear dirty cache so all keys are written fresh after a page change.
+	m.lastDelivered = make(map[string]*KeyAppearance)
 }
 
 // GetRunner returns the runner for a script path.
@@ -488,21 +498,21 @@ func (m *ScriptManager) TriggerT2() error {
 // runTogglePassive runs t1_passive / t2_passive for the currently registered toggle scripts.
 func (m *ScriptManager) runTogglePassive() {
 	type toggleEntry struct {
-		script string
-		key    int
-		isT1   bool
+		script   string
+		key      int
+		delivKey string
+		isT1     bool
 	}
 
 	m.mu.RLock()
 	entries := []toggleEntry{
-		{m.t1Script, m.t1Key, true},
-		{m.t2Script, m.t2Key, false},
+		{m.t1Script, m.t1Key, m.t1Script + "|t1", true},
+		{m.t2Script, m.t2Key, m.t2Script + "|t2", false},
 	}
-	cb := m.onKeyUpdate
 	m.mu.RUnlock()
 
 	for _, e := range entries {
-		if e.script == "" || cb == nil {
+		if e.script == "" {
 			continue
 		}
 		m.mu.RLock()
@@ -521,7 +531,7 @@ func (m *ScriptManager) runTogglePassive() {
 		if err != nil || ap == nil {
 			continue
 		}
-		cb(e.key, ap)
+		m.deliverUpdate(e.delivKey, e.key, ap)
 	}
 }
 
@@ -545,10 +555,9 @@ func (m *ScriptManager) RefreshScript(scriptPath string) {
 	m.mu.RLock()
 	runner := m.runners[scriptPath]
 	keyIndex, visible := m.visibleScripts[scriptPath]
-	callback := m.onKeyUpdate
 	m.mu.RUnlock()
 
-	if runner == nil || !visible || callback == nil || !runner.HasPassive() {
+	if runner == nil || !visible || !runner.HasPassive() {
 		return
 	}
 
@@ -557,7 +566,12 @@ func (m *ScriptManager) RefreshScript(scriptPath string) {
 		return
 	}
 
-	callback(keyIndex, appearance)
+	// Force delivery even if appearance hasn't changed (explicit refresh after trigger).
+	m.mu.Lock()
+	delete(m.lastDelivered, scriptPath)
+	m.mu.Unlock()
+
+	m.deliverUpdate(scriptPath, keyIndex, appearance)
 }
 
 // requestRefresh is called when a script calls system.refresh().

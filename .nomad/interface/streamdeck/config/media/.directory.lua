@@ -7,44 +7,53 @@
 -- Requires playerctl to be installed:
 --   https://github.com/altdesktop/playerctl
 --
--- State is shared across all three functions so we only shell out once per
--- passive tick and reuse the result for both the folder label and T1.
+-- background() polls playerctl every second and updates shared state.
+-- passive / t1_passive are pure state reads (fast, no shell calls).
 
 local shell  = require("shell")
+local system = require("system")
 local script = {}
 
--- ── helpers ──────────────────────────────────────────────────────────────────
+-- ── helpers ───────────────────────────────────────────────────────────────────
 
 local function playerctl(args)
-    local result = shell.run("playerctl " .. args .. " 2>/dev/null")
-    if result and result ~= "" then
+    local result, _, code = shell.exec("playerctl " .. args .. " 2>/dev/null")
+    if code == 0 and result and result ~= "" then
         return result:match("^%s*(.-)%s*$") -- trim whitespace
     end
     return nil
 end
 
-local function refresh_state(state)
-    state.status = playerctl("status") or "Stopped"
-    state.artist = playerctl("metadata artist") or ""
-    state.title  = playerctl("metadata title")  or "No media"
-    state.updated = true
+-- ── background: polls playerctl every 1 s ────────────────────────────────────
+
+function script.background(state)
+    while true do
+        local prev_status = state.status
+        state.status = playerctl("status") or "Stopped"
+        state.artist = playerctl("metadata artist") or ""
+        state.title  = playerctl("metadata title")  or "No media"
+        -- Only push a refresh when something actually changed
+        if state.status ~= prev_status or state._force_refresh then
+            state._force_refresh = false
+            system.refresh()
+        end
+        system.sleep(1000)
+    end
 end
 
 -- ── folder button (passive) ───────────────────────────────────────────────────
--- Shows a scrolling "Artist – Title" marquee, or "Stopped" when idle.
+-- Shows a scrolling "Artist – Title" marquee, or "MEDIA" when idle.
 
 function script.passive(key, state)
-    refresh_state(state)
-
-    local playing = state.status == "Playing"
+    local playing = (state.status == "Playing")
     local label
 
     if not playing then
         label = "MEDIA"
     else
-        -- Build a short marquee: trim to 8 chars, advance offset every ~2 ticks
-        local full = state.title
-        if state.artist ~= "" then
+        -- Build a short marquee: trim to 8 chars, advance offset every tick
+        local full = state.title or "No media"
+        if (state.artist or "") ~= "" then
             full = state.artist .. " - " .. full
         end
         if #full <= 8 then
@@ -67,13 +76,13 @@ function script.t1_passive(key, state)
     if playing then
         return {
             color      = {0, 100, 0},
-            text       = "[||",   -- pause
+            text       = "[||",
             text_color = {150, 255, 150},
         }
     else
         return {
             color      = {60, 60, 0},
-            text       = "[>]",   -- play
+            text       = "[>]",
             text_color = {255, 255, 100},
         }
     end
@@ -81,8 +90,8 @@ end
 
 function script.t1_trigger(state)
     playerctl("play-pause")
-    -- Force state refresh on next passive tick
-    state.status = nil
+    state._force_refresh = true
+    system.refresh()
 end
 
 -- ── T2 – next track ───────────────────────────────────────────────────────────
@@ -97,7 +106,8 @@ end
 
 function script.t2_trigger(state)
     playerctl("next")
-    state.status = nil
+    state._force_refresh = true
+    system.refresh()
 end
 
 return script

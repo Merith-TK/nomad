@@ -74,7 +74,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Application: ApplicationConfig{
 			Brightness: 75,
-			PassiveFPS: 2,
+			PassiveFPS: 30,
 			Timeout:    0,
 			Debug:      false,
 		},
