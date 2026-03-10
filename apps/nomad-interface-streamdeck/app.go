@@ -43,8 +43,10 @@ type App struct {
 	cancel     context.CancelFunc
 
 	// Settings overlay
-	inSettings   bool
-	settingsPage int // future: scroll through setting rows
+	inSettings       bool
+	settingsPage     int  // future: scroll through setting rows
+	exitConfirming   bool // true after first EXIT press, waiting for confirmation
+	restartRequested bool // set by RELOAD; main loop relaunches the process
 
 	// Display sleep / timeout
 	sleepMu      sync.Mutex

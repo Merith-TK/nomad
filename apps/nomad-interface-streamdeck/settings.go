@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/merith-tk/nomad/pkg/streamdeck"
 )
@@ -34,9 +35,10 @@ var timeoutValues = []int{0, 30, 60, 120, 300}
 // Slots map to content keys left-to-right, row by row, skipping col-0 reserved keys.
 const (
 	// Row 0 – system buttons
-	sSlotExit = 0 // EXIT  (row 0, col 1)
-	// slots 1, 2 intentionally empty
-	sSlotOpenDir = 3 // OPEN CONFIG DIR (row 0, col 4 – top-right)
+	sSlotExit = 0 // EXIT    (row 0, col 1)
+	// slot 1 intentionally empty
+	sSlotReload  = 2 // RELOAD  (row 0, col 3)
+	sSlotOpenDir = 3 // CFGDIR  (row 0, col 4 – top-right)
 
 	// Row 1 – brightness
 	sSlotBrtDown = 4 // BRT-
@@ -61,6 +63,7 @@ func (a *App) enterSettings() {
 // exitSettings leaves settings mode and returns to the normal navigation page.
 func (a *App) exitSettings() {
 	a.inSettings = false
+	a.exitConfirming = false
 	fmt.Println("[*] Exiting settings menu")
 
 	// Re-render the regular navigation page
@@ -113,7 +116,12 @@ func (a *App) renderSettingsPage() {
 	}
 
 	// ── System row (row 0) ────────────────────────────────────────────────────
-	setSlot(sSlotExit, "EXIT", color.RGBA{140, 20, 20, 255}, color.RGBA{255, 180, 180, 255})
+	if a.exitConfirming {
+		setSlot(sSlotExit, "SURE?", color.RGBA{200, 0, 0, 255}, color.RGBA{255, 220, 220, 255})
+	} else {
+		setSlot(sSlotExit, "EXIT", color.RGBA{140, 20, 20, 255}, color.RGBA{255, 180, 180, 255})
+	}
+	setSlot(sSlotReload, "RELOAD", color.RGBA{20, 100, 20, 255}, color.RGBA{160, 255, 160, 255})
 	setSlot(sSlotOpenDir, "CFGDIR", color.RGBA{20, 80, 80, 255}, color.RGBA{160, 230, 230, 255})
 
 	// ── Brightness row (row 1) ────────────────────────────────────────────────
@@ -168,7 +176,55 @@ func (a *App) handleSettingsKeyEvent(keyIndex int) error {
 
 	switch slot {
 	case sSlotExit:
-		fmt.Println("[*] EXIT pressed – shutting down")
+		// handled above (double-press confirm)
+	default:
+		// Any other key press cancels a pending exit confirmation.
+		if a.exitConfirming {
+			a.exitConfirming = false
+			a.renderSettingsPage()
+			return nil
+		}
+	}
+
+	switch slot {
+	case sSlotExit:
+		if !a.exitConfirming {
+			// First press: ask for confirmation.
+			a.exitConfirming = true
+			a.renderSettingsPage()
+			// Auto-cancel confirmation after 3 s.
+			go func() {
+				time.Sleep(3 * time.Second)
+				if a.exitConfirming {
+					a.exitConfirming = false
+					a.renderSettingsPage()
+				}
+			}()
+		} else {
+			// Second press: confirmed – flash only the EXIT key, then quit.
+			fmt.Println("[*] EXIT confirmed – shutting down")
+			contentKeys := a.nav.GetContentKeys()
+			if sSlotExit < len(contentKeys) {
+				img := a.nav.CreateTextImageWithColors("BYE",
+					color.RGBA{180, 0, 0, 255},
+					color.RGBA{255, 200, 200, 255})
+				a.device.SetImage(contentKeys[sSlotExit], img)
+			}
+			time.Sleep(500 * time.Millisecond)
+			a.cancel()
+		}
+		return nil
+	case sSlotReload:
+		fmt.Println("[*] RELOAD pressed – restarting")
+		contentKeys := a.nav.GetContentKeys()
+		if sSlotReload < len(contentKeys) {
+			img := a.nav.CreateTextImageWithColors("...",
+				color.RGBA{80, 60, 0, 255},
+				color.RGBA{255, 210, 80, 255})
+			a.device.SetImage(contentKeys[sSlotReload], img)
+		}
+		time.Sleep(300 * time.Millisecond)
+		a.restartRequested = true
 		a.cancel()
 		return nil
 	case sSlotOpenDir:
