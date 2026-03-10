@@ -1,6 +1,6 @@
 package scripting
 
-// packages.go – discovers and parses installed packages from the .packages/
+// packages.go - discovers and parses installed packages from the .packages/
 // subdirectory of the config root.
 //
 // Directory layout expected by ScanPackages:
@@ -117,7 +117,7 @@ func ScanPackages(configDir string) ([]*ScannedPackage, error) {
 
 	entries, err := os.ReadDir(packagesDir)
 	if os.IsNotExist(err) {
-		return nil, nil // no packages directory – nothing to do
+		return nil, nil // no packages directory - nothing to do
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scanning .packages: %w", err)
@@ -133,12 +133,12 @@ func ScanPackages(configDir string) ([]*ScannedPackage, error) {
 		pkgDir := filepath.Join(packagesDir, entry.Name())
 		pkg := &ScannedPackage{Dir: pkgDir}
 
-		// Parse manifest.json (optional – missing file is not an error).
+		// Parse manifest.json (optional - missing file is not an error).
 		manifestPath := filepath.Join(pkgDir, "manifest.json")
 		if data, readErr := os.ReadFile(manifestPath); readErr == nil {
 			if jsonErr := json.Unmarshal(data, &pkg.Manifest); jsonErr != nil {
 				fmt.Printf("[!] Package %s: invalid manifest.json: %v\n", entry.Name(), jsonErr)
-				// Fall through – still try to use lib/ even with a bad manifest.
+				// Fall through - still try to use lib/ even with a bad manifest.
 			}
 		}
 
@@ -158,7 +158,7 @@ func ScanPackages(configDir string) ([]*ScannedPackage, error) {
 		// A manifest value of "-" disables daemon entirely.
 		switch pkg.Manifest.Daemon {
 		case "-":
-			// Explicitly disabled – leave DaemonScript empty.
+			// Explicitly disabled - leave DaemonScript empty.
 		case "":
 			// Auto-detect: use daemon.lua if it exists in the package root.
 			auto := filepath.Join(pkgDir, "daemon.lua")

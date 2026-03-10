@@ -1,8 +1,8 @@
 -- .directory.lua for the media folder
 --
 -- Drives the folder button (passive) and the two reserved T1/T2 keys:
---   T1  – play / pause toggle
---   T2  – skip to next track
+--   T1  - play / pause toggle
+--   T2  - skip to next track
 --
 -- Requires playerctl to be installed:
 --   https://github.com/altdesktop/playerctl
@@ -14,7 +14,7 @@ local shell  = require("shell")
 local system = require("system")
 local script = {}
 
--- ── helpers ───────────────────────────────────────────────────────────────────
+-- -- helpers -------------------------------------------------------------------
 
 local function playerctl(args)
     local result, _, code = shell.exec("playerctl " .. args .. " 2>/dev/null")
@@ -24,7 +24,7 @@ local function playerctl(args)
     return nil
 end
 
--- ── background: polls playerctl every 1 s ────────────────────────────────────
+-- -- background: polls playerctl every 1 s ------------------------------------
 
 function script.background(state)
     while true do
@@ -41,8 +41,8 @@ function script.background(state)
     end
 end
 
--- ── folder button (passive) ───────────────────────────────────────────────────
--- Shows a scrolling "Artist – Title" marquee, or "MEDIA" when idle.
+-- -- folder button (passive) ---------------------------------------------------
+-- Shows a scrolling "Artist - Title" marquee, or "MEDIA" when idle.
 
 function script.passive(key, state)
     local playing = (state.status == "Playing")
@@ -69,7 +69,7 @@ function script.passive(key, state)
     return { color = bg, text = label, text_color = {200, 255, 200} }
 end
 
--- ── T1 – play / pause ─────────────────────────────────────────────────────────
+-- -- T1 - play / pause ---------------------------------------------------------
 
 function script.t1_passive(key, state)
     local playing = (state.status == "Playing")
@@ -94,7 +94,7 @@ function script.t1_trigger(state)
     system.refresh()
 end
 
--- ── T2 – next track ───────────────────────────────────────────────────────────
+-- -- T2 - next track -----------------------------------------------------------
 
 function script.t2_passive(key, state)
     return {

@@ -1,6 +1,6 @@
 package modules
 
-// store.go – provides a thread-safe global key-value store to Lua scripts.
+// store.go - provides a thread-safe global key-value store to Lua scripts.
 //
 // A single StoreModule instance is created by ScriptManager and its Loader
 // method is preloaded into every ScriptRunner.  Because the backing sync.Map
@@ -44,7 +44,7 @@ import (
 // Create exactly one instance per ScriptManager via NewStoreModule, then
 // pass the same instance to every ScriptRunner so they all share one map.
 type StoreModule struct {
-	data sync.Map // map[string]interface{}  –  string | float64 | bool
+	data sync.Map // map[string]interface{}  -  string | float64 | bool
 }
 
 // NewStoreModule creates a new, empty shared store.

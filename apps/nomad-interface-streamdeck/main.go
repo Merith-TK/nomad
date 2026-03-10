@@ -30,7 +30,7 @@ func main() {
 		// can claim it cleanly.
 		exe, err := os.Executable()
 		if err != nil {
-			log.Printf("Restart: could not resolve executable: %v – falling back to in-process restart", err)
+			log.Printf("Restart: could not resolve executable: %v - falling back to in-process restart", err)
 			continue
 		}
 		cmd := exec.Command(exe, os.Args[1:]...)
@@ -38,7 +38,7 @@ func main() {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Start(); err != nil {
-			log.Printf("Restart: exec failed: %v – falling back to in-process restart", err)
+			log.Printf("Restart: exec failed: %v - falling back to in-process restart", err)
 			continue
 		}
 		// The new process is running; exit this one.

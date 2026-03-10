@@ -30,7 +30,7 @@ local pkg_data = require('pkg_data')
 local system   = require('system')
 local log      = require('log')
 
--- ── Configuration ─────────────────────────────────────────────────────────────
+-- -- Configuration -------------------------------------------------------------
 
 local BASE_URL      = "http://127.0.0.1:9863/api/v1"
 local APP_ID        = "nomadstreamdeck"
@@ -40,7 +40,7 @@ local POLL_INTERVAL = 2000   -- ms between state polls when connected
 local RETRY_DELAY   = 10000  -- ms between reconnect attempts when YTM is absent
 local PAIR_TIMEOUT  = 35000  -- ms to wait for user to approve pairing (API max 30s)
 
--- ── HTTP helpers ──────────────────────────────────────────────────────────────
+-- -- HTTP helpers --------------------------------------------------------------
 
 -- post_json: POST a JSON-encoded payload; returns (table|nil, status_code).
 local function post_json(url, payload, token, timeout_ms)
@@ -76,7 +76,7 @@ local function get_json(url, token)
     return t, status
 end
 
--- ── Pairing ───────────────────────────────────────────────────────────────────
+-- -- Pairing -------------------------------------------------------------------
 
 -- do_pair: run the full requestcode → request authentication flow.
 -- Only called when the pair button sets ytm._pair_request = true.
@@ -85,7 +85,7 @@ local function do_pair()
     store.set('ytm.pairing', true)
     log.info("[ytm] Starting pairing flow...")
 
-    -- Step 1 – request a one-time code
+    -- Step 1 - request a one-time code
     local res, status = post_json(BASE_URL .. "/auth/requestcode", {
         appId      = APP_ID,
         appName    = APP_NAME,
@@ -98,14 +98,14 @@ local function do_pair()
     end
 
     local code = res.code
-    log.info("[ytm] ┌─────────────────────────────────────────────────────────┐")
+    log.info("[ytm] ┌---------------------------------------------------------┐")
     log.info("[ytm] │  YTM Desktop pairing request sent.                      │")
     log.info("[ytm] │  Open YTM Desktop → Settings → Integrations             │")
     log.info("[ytm] │  and APPROVE the connection for \"" .. APP_NAME .. "\".  │")
     log.info("[ytm] │  You have 30 seconds.                                   │")
-    log.info("[ytm] └─────────────────────────────────────────────────────────┘")
+    log.info("[ytm] └---------------------------------------------------------┘")
 
-    -- Step 2 – exchange code for token (blocks up to PAIR_TIMEOUT)
+    -- Step 2 - exchange code for token (blocks up to PAIR_TIMEOUT)
     local auth, auth_status = post_json(
         BASE_URL .. "/auth/request",
         { appId = APP_ID, code = code },
@@ -118,7 +118,7 @@ local function do_pair()
     store.set('ytm.pairing', false)
 
     if not auth or not auth.token then
-        log.error("[ytm] Pairing failed – HTTP " .. tostring(auth_status)
+        log.error("[ytm] Pairing failed - HTTP " .. tostring(auth_status)
             .. ". Response token field: " .. tostring(auth and auth.token))
         return nil
     end
@@ -127,7 +127,7 @@ local function do_pair()
     return auth.token
 end
 
--- ── State handling ────────────────────────────────────────────────────────────
+-- -- State handling ------------------------------------------------------------
 
 -- push_state: writes fields from a /state response into the shared store.
 local function push_state(s)
@@ -166,7 +166,7 @@ local function push_state(s)
     end
 end
 
--- ── Daemon entry point ────────────────────────────────────────────────────────
+-- -- Daemon entry point --------------------------------------------------------
 
 local M = {}
 
@@ -195,10 +195,10 @@ function M.daemon(state)
         store.set('ytm._token', token)
         log.info("[ytm] Loaded saved authentication token.")
     else
-        log.info("[ytm] No saved token – press the PAIR button on your deck to connect.")
+        log.info("[ytm] No saved token - press the PAIR button on your deck to connect.")
     end
 
-    -- ── Main loop ──────────────────────────────────────────────────────────────
+    -- -- Main loop --------------------------------------------------------------
     while true do
 
         -- Check for a pairing signal from the pair button.
@@ -219,7 +219,7 @@ function M.daemon(state)
 
             if status == 401 then
                 -- Token was revoked or is no longer valid in YTM Desktop.
-                log.warn("[ytm] Token rejected (HTTP 401) – cleared. Press PAIR to reconnect.")
+                log.warn("[ytm] Token rejected (HTTP 401) - cleared. Press PAIR to reconnect.")
                 token = nil
                 store.delete('ytm._token')
                 pkg_data.remove('auth.json')
@@ -231,9 +231,9 @@ function M.daemon(state)
                 push_state(s)
 
             elseif status == -1 then
-                -- HTTP worked but we couldn't parse the response – don't
+                -- HTTP worked but we couldn't parse the response - don't
                 -- treat this as a full disconnect; just retry at normal rate.
-                log.warn("[ytm] /state parse error – retrying next poll.")
+                log.warn("[ytm] /state parse error - retrying next poll.")
 
             else
                 -- YTM Desktop stopped or network hiccup.
@@ -243,7 +243,7 @@ function M.daemon(state)
 
             system.sleep(POLL_INTERVAL)
         else
-            -- No token and no incoming pair request – sleep briefly then re-check.
+            -- No token and no incoming pair request - sleep briefly then re-check.
             system.sleep(1000)
         end
 

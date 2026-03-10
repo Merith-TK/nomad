@@ -44,10 +44,10 @@ type ScriptManager struct {
 	configDir  string
 	passiveFPS int
 
-	// Installed .packages/ library paths – prepended to every runner's package.path.
+	// Installed .packages/ library paths - prepended to every runner's package.path.
 	packageLibPaths []string
 
-	// Shared cross-script key-value store – passed to every ScriptRunner.
+	// Shared cross-script key-value store - passed to every ScriptRunner.
 	store *modules.StoreModule
 
 	// daemonRunners holds runners for package daemon scripts.
@@ -84,7 +84,7 @@ type ScriptManager struct {
 	// Callback when passive wants to update a key
 	onKeyUpdate func(keyIndex int, appearance *KeyAppearance)
 
-	// T1 / T2 toggle-key scripts – set by the app on every navigation
+	// T1 / T2 toggle-key scripts - set by the app on every navigation
 	t1Script string
 	t1Key    int
 	t2Script string
@@ -196,7 +196,7 @@ func (m *ScriptManager) Boot(ctx context.Context) error {
 		if err != nil {
 			return nil // Skip errors
 		}
-		// Skip the entire .packages/ tree – those scripts are managed
+		// Skip the entire .packages/ tree - those scripts are managed
 		// separately as daemon runners and Lua library files, not deck buttons.
 		if info.IsDir() && filepath.Clean(path) == filepath.Clean(packagesDir) {
 			return filepath.SkipDir
@@ -321,7 +321,7 @@ func (m *ScriptManager) passiveLoop() {
 		case <-ticker.C:
 			runTick()
 		case <-m.refreshCh:
-			// A script called system.refresh() – process immediately.
+			// A script called system.refresh() - process immediately.
 			// Drain any additional signals that stacked up while we were busy.
 			runTick()
 			for {
@@ -394,7 +394,7 @@ func (m *ScriptManager) runPassiveUpdate() {
 				return
 			}
 
-			// Deliver immediately – no batch, no wait for other scripts.
+			// Deliver immediately - no batch, no wait for other scripts.
 			m.deliverUpdate(scriptPath, keyIndex, appearance)
 		}(scriptPath, keyIndex)
 	}

@@ -657,7 +657,7 @@ func (r *ScriptRunner) parseAppearance(tbl *lua.LTable) *KeyAppearance {
 //   - On successful run: cache the result so future missed ticks can use it.
 func (r *ScriptRunner) runNamedPassive(fnName string, keyIndex int) (*KeyAppearance, error) {
 	if !r.luaMu.TryLock() {
-		// Lua VM busy (background worker running) – return cached appearance.
+		// Lua VM busy (background worker running) - return cached appearance.
 		r.mu.RLock()
 		cached := r.passiveCache[fnName]
 		r.mu.RUnlock()

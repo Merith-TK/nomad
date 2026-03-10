@@ -389,7 +389,7 @@ func (n *Navigator) renderReservedKeys() {
 		img := n.createTextImage("<-", color.RGBA{100, 100, 100, 255})
 		n.dev.SetImage(KeyBack, img)
 	} else {
-		// At root – the key opens the settings menu
+		// At root - the key opens the settings menu
 		img := n.CreateTextImageWithColors("SET", color.RGBA{120, 80, 0, 255}, color.RGBA{255, 200, 50, 255})
 		n.dev.SetImage(KeyBack, img)
 	}
@@ -418,7 +418,7 @@ func (n *Navigator) HandleKeyPress(keyIndex int) (*PageItem, bool, error) {
 		return nil, false, nil
 
 	case KeyToggle1, KeyToggle2:
-		// Reserved – handled upstream before HandleKeyPress is called.
+		// Reserved - handled upstream before HandleKeyPress is called.
 		return nil, false, nil
 	}
 

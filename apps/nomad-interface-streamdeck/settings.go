@@ -1,6 +1,6 @@
 package main
 
-// settings.go – implements the settings overlay menu for the Stream Deck.
+// settings.go - implements the settings overlay menu for the Stream Deck.
 //
 // The settings page is a virtual overlay (not a real folder) that appears when
 // the user presses the reserved back/settings key while at the navigation root.
@@ -34,19 +34,19 @@ var timeoutValues = []int{0, 30, 60, 120, 300}
 // Settings content-key slot indices (positions within contentKeys slice).
 // Slots map to content keys left-to-right, row by row, skipping col-0 reserved keys.
 const (
-	// Row 0 – system buttons
+	// Row 0 - system buttons
 	sSlotExit = 0 // EXIT    (row 0, col 1)
 	// slot 1 intentionally empty
 	sSlotReload  = 2 // RELOAD  (row 0, col 3)
-	sSlotOpenDir = 3 // CFGDIR  (row 0, col 4 – top-right)
+	sSlotOpenDir = 3 // CFGDIR  (row 0, col 4 - top-right)
 
-	// Row 1 – brightness
+	// Row 1 - brightness
 	sSlotBrtDown = 4 // BRT-
 	sSlotBrtVal  = 5 // B:XX%  (display only)
 	sSlotBrtUp   = 6 // BRT+
 	// slot 7 empty
 
-	// Row 2 – timeout
+	// Row 2 - timeout
 	sSlotTmoDown = 8  // TMO-
 	sSlotTmoVal  = 9  // timeout value display
 	sSlotTmoUp   = 10 // TMO+
@@ -115,7 +115,7 @@ func (a *App) renderSettingsPage() {
 		a.device.SetImage(contentKeys[slot], img)
 	}
 
-	// ── System row (row 0) ────────────────────────────────────────────────────
+	// -- System row (row 0) ----------------------------------------------------
 	if a.exitConfirming {
 		setSlot(sSlotExit, "SURE?", color.RGBA{200, 0, 0, 255}, color.RGBA{255, 220, 220, 255})
 	} else {
@@ -124,14 +124,14 @@ func (a *App) renderSettingsPage() {
 	setSlot(sSlotReload, "RELOAD", color.RGBA{20, 100, 20, 255}, color.RGBA{160, 255, 160, 255})
 	setSlot(sSlotOpenDir, "CFGDIR", color.RGBA{20, 80, 80, 255}, color.RGBA{160, 230, 230, 255})
 
-	// ── Brightness row (row 1) ────────────────────────────────────────────────
+	// -- Brightness row (row 1) ------------------------------------------------
 	setSlot(sSlotBrtDown, "BRT-", color.RGBA{40, 40, 120, 255}, color.RGBA{160, 160, 255, 255})
 	setSlot(sSlotBrtVal,
 		fmt.Sprintf("B:%d%%", a.config.Application.Brightness),
 		color.RGBA{20, 20, 60, 255}, color.RGBA{200, 200, 255, 255})
 	setSlot(sSlotBrtUp, "BRT+", color.RGBA{40, 40, 120, 255}, color.RGBA{160, 160, 255, 255})
 
-	// ── Timeout row (row 2) ───────────────────────────────────────────────────
+	// -- Timeout row (row 2) ---------------------------------------------------
 	setSlot(sSlotTmoDown, "TMO-", color.RGBA{40, 80, 40, 255}, color.RGBA{160, 255, 160, 255})
 	tmoText := fmtTimeout(a.config.Application.Timeout)
 	setSlot(sSlotTmoVal, tmoText, color.RGBA{20, 40, 20, 255}, color.RGBA{160, 255, 160, 255})
@@ -201,8 +201,8 @@ func (a *App) handleSettingsKeyEvent(keyIndex int) error {
 				}
 			}()
 		} else {
-			// Second press: confirmed – flash only the EXIT key, then quit.
-			fmt.Println("[*] EXIT confirmed – shutting down")
+			// Second press: confirmed - flash only the EXIT key, then quit.
+			fmt.Println("[*] EXIT confirmed - shutting down")
 			contentKeys := a.nav.GetContentKeys()
 			if sSlotExit < len(contentKeys) {
 				img := a.nav.CreateTextImageWithColors("BYE",
@@ -215,7 +215,7 @@ func (a *App) handleSettingsKeyEvent(keyIndex int) error {
 		}
 		return nil
 	case sSlotReload:
-		fmt.Println("[*] RELOAD pressed – restarting")
+		fmt.Println("[*] RELOAD pressed - restarting")
 		contentKeys := a.nav.GetContentKeys()
 		if sSlotReload < len(contentKeys) {
 			img := a.nav.CreateTextImageWithColors("...",
@@ -242,7 +242,7 @@ func (a *App) handleSettingsKeyEvent(keyIndex int) error {
 	case sSlotTmoUp:
 		a.stepTimeout(+1)
 	default:
-		// Unbound key – ignore
+		// Unbound key - ignore
 		return nil
 	}
 

@@ -1,6 +1,6 @@
 package modules
 
-// pkg_data.go – package-scoped filesystem and JSON storage, available ONLY to
+// pkg_data.go - package-scoped filesystem and JSON storage, available ONLY to
 // scripts that are part of an installed package (daemon.lua, lib/*.lua, etc.).
 // Regular button scripts and .directory.lua files do NOT receive this module.
 //
@@ -101,7 +101,7 @@ func (m *PackageDataModule) resolve(rel string) (string, error) {
 	return abs, nil
 }
 
-// ── File I/O ──────────────────────────────────────────────────────────────────
+// -- File I/O ------------------------------------------------------------------
 
 // read(file) → string|nil, err|nil
 func (m *PackageDataModule) read(L *lua.LState) int {
@@ -181,7 +181,7 @@ func (m *PackageDataModule) appendFile(L *lua.LState) int {
 	return 2
 }
 
-// ── JSON helpers ──────────────────────────────────────────────────────────────
+// -- JSON helpers --------------------------------------------------------------
 
 // json_read(file) → table|nil, err|nil
 func (m *PackageDataModule) jsonRead(L *lua.LState) int {
@@ -241,7 +241,7 @@ func (m *PackageDataModule) jsonWrite(L *lua.LState) int {
 	return 2
 }
 
-// ── Queries ───────────────────────────────────────────────────────────────────
+// -- Queries -------------------------------------------------------------------
 
 // exists(file) → bool
 func (m *PackageDataModule) exists(L *lua.LState) int {
@@ -347,7 +347,7 @@ func (m *PackageDataModule) path(L *lua.LState) int {
 	return 1
 }
 
-// ── Conversion helpers ────────────────────────────────────────────────────────
+// -- Conversion helpers --------------------------------------------------------
 
 // goValueToLua recursively converts a Go value (from json.Unmarshal) to an LValue.
 func goValueToLua(L *lua.LState, v interface{}) lua.LValue {

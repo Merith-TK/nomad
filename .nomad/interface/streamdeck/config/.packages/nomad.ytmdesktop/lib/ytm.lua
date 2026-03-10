@@ -19,11 +19,11 @@ local http  = require('http')
 local json  = require('json')
 local store = require('store')
 
--- ── Configuration ─────────────────────────────────────────────────────────────
+-- -- Configuration -------------------------------------------------------------
 
 local BASE_URL = "http://127.0.0.1:9863/api/v1"
 
--- ── Internal helpers ──────────────────────────────────────────────────────────
+-- -- Internal helpers ----------------------------------------------------------
 
 -- _token: returns the bearer token from store, or nil if not yet paired.
 local function _token()
@@ -42,7 +42,7 @@ local function _command(payload)
     return (status == 204 or status == 200), tostring(status)
 end
 
--- ── Status queries (read from store – zero latency) ───────────────────────────
+-- -- Status queries (read from store - zero latency) ---------------------------
 
 local M = {}
 
@@ -98,7 +98,7 @@ function M.progress() return store.get('ytm.progress') or 0  end
 --- Returns track duration in seconds.
 function M.duration() return store.get('ytm.duration') or 0  end
 
--- ── Player control (POST /command) ───────────────────────────────────────────
+-- -- Player control (POST /command) -------------------------------------------
 
 --- Send a raw command with optional data payload.
 --- See companion API docs for valid command strings.
@@ -165,12 +165,12 @@ function M.change_video(video_id, playlist_id)
     })
 end
 
--- ── Pairing control ─────────────────────────────────────────────────────
+-- -- Pairing control -----------------------------------------------------
 
 --- Signal the daemon to start the pairing flow.
 --- Returns immediately; the daemon runs the 30-second approval wait on its own
 --- goroutine.  Use ytm.pairing() to check progress and ytm.paired() for result.
---- Safe to call even if already paired – it will trigger a fresh re-pairing.
+--- Safe to call even if already paired - it will trigger a fresh re-pairing.
 function M.request_pair()
     store.set('ytm._pair_request', true)
 end
